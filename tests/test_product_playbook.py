@@ -1340,7 +1340,18 @@ def _any_pdf_converter_available() -> bool:
     ]
     if any(_Path(c).is_file() for c in chrome_candidates):
         return True
-    return any(_shutil.which(n) for n in ("chromium", "chromium-browser", "google-chrome", "chrome", "wkhtmltopdf", "pandoc"))
+    return any(
+        _shutil.which(n)
+        for n in (
+            "google-chrome-stable",
+            "google-chrome",
+            "chromium",
+            "chromium-browser",
+            "chrome",
+            "wkhtmltopdf",
+            "pandoc",
+        )
+    )
 
 
 if __name__ == "__main__":

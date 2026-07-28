@@ -530,51 +530,114 @@ def _find_chrome() -> Optional[str]:
     for candidate in candidates:
         if Path(candidate).is_file():
             return candidate
-    for name in ("chromium", "chromium-browser", "google-chrome", "chrome"):
+    for name in (
+        "google-chrome-stable",
+        "google-chrome",
+        "chromium",
+        "chromium-browser",
+        "chrome",
+    ):
         path = shutil.which(name)
         if path:
             return path
     return None
 
 
+def _pdf_looks_valid(pdf_path: Path) -> bool:
+    try:
+        return pdf_path.is_file() and pdf_path.read_bytes()[:4] == b"%PDF"
+    except OSError:
+        return False
+
+
+def _discard_invalid_pdf(pdf_path: Path) -> None:
+    try:
+        if pdf_path.exists():
+            pdf_path.unlink()
+    except OSError:
+        pass
+
+
+def _run_converter(name: str, cmd: list[str], pdf_path: Path) -> Optional[str]:
+    """Run one converter. Return None on success, else a short failure reason."""
+    _discard_invalid_pdf(pdf_path)
+    try:
+        completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    except OSError as error:
+        return f"{name}: failed to start ({error})"
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "").strip()
+        if detail:
+            detail = detail.splitlines()[-1][:300]
+            return f"{name}: exit {completed.returncode}: {detail}"
+        return f"{name}: exit {completed.returncode}"
+    if not _pdf_looks_valid(pdf_path):
+        _discard_invalid_pdf(pdf_path)
+        return f"{name}: produced no valid PDF"
+    return None
+
+
 def _html_to_pdf(html_path: Path, pdf_path: Path) -> None:
-    """Print a single HTML file to PDF using the first available converter."""
+    """Print a single HTML file to PDF using the first available converter.
+
+    Chromium-based browsers need ``--no-sandbox`` / ``--disable-dev-shm-usage``
+    on typical Linux CI runners. Only report "no PDF converter found" when none
+    were present; otherwise surface the converter stderr so CI can diagnose.
+    Intermediate HTML is owned by the caller and is only deleted after a valid
+    PDF is written (see ``export_pdf``).
+    """
+    attempts: list[str] = []
     chrome = _find_chrome()
     if chrome:
-        cmd = [
-            chrome,
-            "--headless",
-            "--disable-gpu",
-            "--no-pdf-header-footer",
-            f"--print-to-pdf={pdf_path}",
-            html_path.as_uri(),
-        ]
-        completed = subprocess.run(cmd, capture_output=True, text=True)
-        if completed.returncode == 0 and pdf_path.is_file():
-            return
-        # Fall through to other converters if Chrome fails.
+        # Prefer new headless; fall back to classic if the binary rejects it.
+        for headless_flag in ("--headless=new", "--headless"):
+            error = _run_converter(
+                Path(chrome).name,
+                [
+                    chrome,
+                    headless_flag,
+                    "--disable-gpu",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--no-pdf-header-footer",
+                    f"--print-to-pdf={pdf_path}",
+                    html_path.as_uri(),
+                ],
+                pdf_path,
+            )
+            if error is None:
+                return
+            attempts.append(error)
 
-    if shutil.which("wkhtmltopdf"):
-        completed = subprocess.run(
-            ["wkhtmltopdf", "-q", str(html_path), str(pdf_path)],
-            capture_output=True,
-            text=True,
+    wkhtmltopdf = shutil.which("wkhtmltopdf")
+    if wkhtmltopdf:
+        error = _run_converter(
+            "wkhtmltopdf",
+            [wkhtmltopdf, "-q", str(html_path), str(pdf_path)],
+            pdf_path,
         )
-        if completed.returncode == 0 and pdf_path.is_file():
+        if error is None:
             return
+        attempts.append(error)
 
-    if shutil.which("pandoc"):
-        completed = subprocess.run(
-            ["pandoc", str(html_path), "-o", str(pdf_path)],
-            capture_output=True,
-            text=True,
+    pandoc = shutil.which("pandoc")
+    if pandoc:
+        error = _run_converter(
+            "pandoc",
+            [pandoc, str(html_path), "-o", str(pdf_path)],
+            pdf_path,
         )
-        if completed.returncode == 0 and pdf_path.is_file():
+        if error is None:
             return
+        attempts.append(error)
 
+    if not attempts:
+        raise ValueError(
+            "no PDF converter found. Install Google Chrome, Chromium, wkhtmltopdf, "
+            "or pandoc, or run with --format html and print to PDF from a browser."
+        )
     raise ValueError(
-        "no PDF converter found. Install Google Chrome, Chromium, wkhtmltopdf, "
-        "or pandoc, or run with --format html and print to PDF from a browser."
+        "PDF conversion failed. Tried: " + "; ".join(attempts)
     )
 
 
