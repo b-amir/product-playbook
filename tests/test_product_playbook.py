@@ -1249,6 +1249,79 @@ class HtmlExportTests(unittest.TestCase):
             # Blank coverage rows keep write-in lines so the table is usable on paper.
             self.assertGreaterEqual(body.count('class="write-line"'), 3)
 
+    def test_html_export_joins_wrapped_list_item_continuations(self) -> None:
+        # Soft-wrapped Markdown list lines must stay one <li>, or bold markers
+        # split across the wrap leak as literal ** and the continuation becomes
+        # a stray paragraph with a huge visual gap.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            playbook = root / "playbook"
+            playbook.mkdir()
+            write(
+                playbook / "README.md",
+                """
+                # Product Playbook
+
+                ## Playbook map
+                - [Chapter](01-chapter.md)
+
+                ## Sign-off
+                Sign off after completion.
+                """,
+            )
+            write(
+                playbook / "01-chapter.md",
+                """
+                # Chapter
+
+                ## CH-01: Wrapped steps
+
+                **Goal**
+
+                Keep wrapped steps intact.
+
+                **Who**
+
+                Tester.
+
+                **Steps**
+
+                1. On **Access**, review Approved Internal Domains, External Invite Limit, Session Expiry, and the
+                   external-user approval switch.
+                2. Review **Session Activity**, **Users by Type**, **Most Common Questions**, and **Most Active
+                   Companies**.
+
+                **Expected**
+
+                - The page remains readable.
+
+                [Results](results-template.md)
+                """,
+            )
+            write(
+                playbook / "results-template.md",
+                """
+                # Results
+
+                ## Legend
+                Use P, F, B, or N.
+                """,
+            )
+            run_script("export_playbook.py", str(playbook), "--format", "html")
+            body = (playbook / "playbook.html").read_text(encoding="utf-8")
+
+            self.assertIn(
+                "and the external-user approval switch.",
+                body,
+            )
+            self.assertIn("<strong>Most Active Companies</strong>", body)
+            self.assertNotIn("**Most Active", body)
+            self.assertNotIn("Companies**.", body)
+            # Continuation must not escape the list as its own paragraph.
+            self.assertNotIn("<p>external-user approval switch.</p>", body)
+            self.assertNotIn("<p>Companies**.</p>", body)
+            self.assertNotIn("<p><strong>Most Active", body)
+
     def test_html_export_refuses_overwrite_without_force(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -281,6 +281,31 @@ def _render_fence(info: str, code_lines: list[str]) -> str:
     )
 
 
+def _is_list_continuation(line: str) -> bool:
+    """True for indented soft-wrap lines that belong to the current list item."""
+    if not line.strip():
+        return False
+    if not (line.startswith(" ") or line.startswith("\t")):
+        return False
+    if _BULLET.match(line) or _ORDERED.match(line):
+        return False
+    if _HEADING.match(line) or _TABLE_ROW.match(line) or _FENCE.match(line):
+        return False
+    return True
+
+
+def _consume_list_item(
+    lines: list[str], start: int, first_text: str
+) -> tuple[str, int]:
+    """Join indented continuation lines into one item so wrapped bold stays intact."""
+    parts = [first_text.strip()]
+    i = start + 1
+    while i < len(lines) and _is_list_continuation(lines[i]):
+        parts.append(lines[i].strip())
+        i += 1
+    return " ".join(parts), i
+
+
 def render_markdown(body: str) -> str:
     lines = body.splitlines()
     out: list[str] = []
@@ -386,15 +411,15 @@ def render_markdown(body: str) -> str:
                 b = _BULLET.match(lines[i])
                 o = _ORDERED.match(lines[i])
                 if b:
+                    item_text, i = _consume_list_item(lines, i, b.group(2))
                     out.append(
-                        f"<li><span class=\"li-body\">{_render_inline(b.group(2))}</span></li>"
+                        f'<li><span class="li-body">{_render_inline(item_text)}</span></li>'
                     )
-                    i += 1
                 elif o:
+                    item_text, i = _consume_list_item(lines, i, o.group(3))
                     out.append(
-                        f"<li><span class=\"li-body\">{_render_inline(o.group(3))}</span></li>"
+                        f'<li><span class="li-body">{_render_inline(item_text)}</span></li>'
                     )
-                    i += 1
                 else:
                     break
             out.append(f"</{tag}>")
