@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -89,6 +90,107 @@ def git_revision(root: Path) -> str | None:
         return None
     revision = result.stdout.strip()
     return revision if result.returncode == 0 and revision else None
+
+
+def _git_text(root: Path, *args: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), *args],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    value = result.stdout.strip()
+    return value if result.returncode == 0 and value else None
+
+
+def git_repository_identity(root: Path) -> dict[str, object]:
+    """Return runtime-only local and sanitized remote repository addresses."""
+
+    git_root_raw = _git_text(root, "rev-parse", "--show-toplevel")
+    if not git_root_raw:
+        return {
+            "local_root": str(root.resolve()),
+            "git_root": None,
+            "branch": None,
+            "remotes": [],
+        }
+
+    git_root = Path(git_root_raw).resolve()
+    branch = _git_text(git_root, "branch", "--show-current")
+    remote_names = (_git_text(git_root, "remote") or "").splitlines()
+    remotes: list[dict[str, str]] = []
+    for name in sorted(remote_names):
+        fetch_url = _git_text(git_root, "remote", "get-url", name)
+        push_url = _git_text(git_root, "remote", "get-url", "--push", name)
+        if not fetch_url:
+            continue
+        item = {
+            "name": name,
+            "fetch_url": sanitize_remote_locator(fetch_url),
+        }
+        if push_url:
+            sanitized_push = sanitize_remote_locator(push_url)
+            if sanitized_push != item["fetch_url"]:
+                item["push_url"] = sanitized_push
+        remotes.append(item)
+
+    return {
+        "local_root": str(root.resolve()),
+        "git_root": str(git_root),
+        "branch": branch,
+        "remotes": remotes,
+    }
+
+
+def discover_nested_git_repositories(
+    root: Path,
+    *,
+    max_depth: int = 4,
+) -> list[dict[str, object]]:
+    """Find checked-out repositories nested inside a wrapper workspace."""
+
+    root = root.resolve()
+    discovered: dict[str, dict[str, object]] = {}
+    root_depth = len(root.parts)
+    for current, directories, names in os.walk(root):
+        current_path = Path(current)
+        depth = len(current_path.parts) - root_depth
+        has_git_marker = ".git" in directories or ".git" in names
+        directories[:] = [
+            directory
+            for directory in sorted(directories)
+            if directory
+            not in {
+                ".git",
+                ".cache",
+                ".venv",
+                "__pycache__",
+                "build",
+                "coverage",
+                "dist",
+                "node_modules",
+                "target",
+                "vendor",
+            }
+        ]
+        if depth >= max_depth:
+            directories[:] = []
+        if current_path == root or not has_git_marker:
+            continue
+        identity = git_repository_identity(current_path)
+        git_root = identity.get("git_root")
+        if not isinstance(git_root, str) or Path(git_root) == root:
+            continue
+        discovered[git_root] = {
+            "path": str(Path(git_root).relative_to(root)),
+            **identity,
+        }
+        directories[:] = []
+    return sorted(discovered.values(), key=lambda item: str(item["path"]))
 
 
 def create_workspace() -> Path:

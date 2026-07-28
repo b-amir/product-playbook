@@ -5,12 +5,16 @@
 1. Browser frontends
 2. APIs and backends
 3. Services and workers
-4. Command-line products
-5. Mobile products
-6. Full-stack products
-7. Unknown frameworks
-8. Mixed and multi-root products
-9. Source priority
+4. RAG and retrieval products
+5. Libraries, SDKs, and helper packages
+6. Integrations, extensions, data, and tooling
+7. Command-line products
+8. Mobile products
+9. Full-stack products
+10. Contracts and runtime addresses
+11. Unknown frameworks
+12. Mixed and multi-root products
+13. Source priority
 
 ## Browser frontends
 
@@ -91,6 +95,44 @@ Look for:
 Write a manual scenario only when a tester has a supported trigger and an observable outcome.
 Otherwise document the gap instead of exposing an internal implementation recipe.
 
+## RAG and retrieval products
+
+Look for:
+
+- Retrieval, embedding, reranking, chunking, indexing, and vector-store modules
+- Prompt construction, guardrails, PII handling, source filtering, and output sanitization
+- Evaluation datasets, golden sets, relevance metrics, and regression thresholds
+- Vault, tenant, client, role, expiry, and document-status filters
+- Supported search, answer, indexing, evaluation, or administration interfaces
+
+Do not turn internal retrieval functions into manual procedures. Require a supported API, CLI,
+job, UI, or evaluation command and an observable result. Distinguish an executable RAG service
+from a helper library, fixture corpus, generated report, or documentation-only design.
+
+## Libraries, SDKs, and helper packages
+
+Look for:
+
+- Package exports, public modules, generated clients, type declarations, and examples
+- Consumer contract tests and compatibility matrices
+- Helper packages under `packages`, `libs`, `shared`, `common`, `sdk`, or client roots
+- Documented commands or sample applications that expose observable behavior
+
+Treat a package as an independent surface when consumers can exercise a stable public interface.
+Keep it as supporting evidence when it only implements an internal step in a larger journey.
+
+## Integrations, extensions, data, and tooling
+
+Look for:
+
+- Connectors, adapters, webhooks, sync jobs, and external-system contracts
+- Editor or browser extension manifests, commands, activation events, and UI contributions
+- Data pipelines, DAGs, transformations, scheduled jobs, and observable outputs
+- Generators, reporting tools, workspace automation, and developer CLIs
+
+Do not collapse these into frontend or backend merely because they share a language. Record their
+own operators, triggers, configuration, cleanup, and failure surfaces.
+
 ## Command-line products
 
 Look for:
@@ -119,6 +161,25 @@ Prefer user journeys as the main scenarios. Add API or service checks only when 
 to prepare data, verify an invisible outcome, or isolate a failure. Map frontend and backend
 evidence to the same scenario when both establish one journey.
 
+## Contracts and runtime addresses
+
+Look for:
+
+- OpenAPI, Swagger, AsyncAPI, GraphQL, protobuf, and RAML artifacts
+- Generated schemas and clients
+- Cached contract copies in frontend, test, fixture, generated, or build-input directories
+- OpenAPI `servers`, API documentation URLs, local development URLs, WebSocket URLs, and runtime
+  address environment-variable names
+- Route registration, handlers, request and response models, permissions, errors, retries, and
+  integration behavior in implementation source
+
+Classify each item as a contract artifact, cached or generated derivative, fixture, tooling, or
+documentation reference. A frontend cache proves the consumer snapshot, not automatically the
+current backend deployment. Compare metadata and behavior before choosing a source of truth.
+
+Report Git remotes separately from runtime product addresses. Sanitize credentials and query
+parameters. Never read or publish secret-file values.
+
 ## Unknown frameworks
 
 Look for:
@@ -135,7 +196,8 @@ Report discovered evidence without forcing it into a known framework.
 ## Mixed and multi-root products
 
 Keep every detected surface and component. Do not collapse a repository to one surface merely
-because an API, frontend, CLI, worker, or mobile dependency appears first.
+because an API, frontend, CLI, worker, RAG, library, integration, tooling, data, extension, or
+mobile dependency appears first.
 
 Use stable source IDs across runs. Merge evidence into one journey when a tester operates one
 interface flow. Keep component-specific scenarios when different operators, interfaces, setup, or

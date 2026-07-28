@@ -26,10 +26,17 @@ Works with agents that load `SKILL.md` skills, including Cursor, Claude Code, Co
 Then ask your agent:
 
 ```text
-Use $product-playbook with source=product=./my-app and verify=false.
+Use $product-playbook to inspect this workspace.
 ```
 
-Sources may be local directories or Git repository URLs. Bundled helpers need Python 3.9+ and use only the standard library. Full workflow: [`SKILL.md`](SKILL.md).
+On the first run, the skill reports the local and sanitized remote repository addresses, inferred
+repository roles, contracts, runtime addresses, prior playbook or QA work, and proposed canonical
+output. It asks you to confirm those assumptions and choose audit, edit, creation, or verification
+before it writes anything.
+
+Sources may also be supplied explicitly as local directories or Git repository URLs. Bundled
+helpers need Python 3.9+ and use only the standard library. Full workflow:
+[`SKILL.md`](SKILL.md).
 
 <p align="center">
   <img src="assets/readme/workflow.svg" width="100%" alt="Product Playbook discovery, analysis, generation, validation, and reconciliation workflow">
@@ -41,7 +48,8 @@ Product Playbook discovers product journeys from executable evidence and writes 
 
 It supports:
 
-- frontend, API, full-stack, CLI, service, worker, integration, and mobile products
+- frontend, API, full-stack, CLI, service, worker, RAG, integration, SDK, helper-library, tooling,
+  data, contract, extension, and mobile products
 - local directories and remote Git repositories
 - monorepos and products split across several repositories
 - playbooks stored inside a source repository or in a separate directory
@@ -50,6 +58,14 @@ It supports:
 - portable evidence state without machine-specific paths
 
 ## One-command bootstrap
+
+Inspect the current workspace and return structured confirmation questions:
+
+```bash
+python3 scripts/bootstrap_playbook.py
+```
+
+Inspect explicitly supplied sources:
 
 ```bash
 python3 scripts/bootstrap_playbook.py \
@@ -60,6 +76,11 @@ python3 scripts/bootstrap_playbook.py \
 ```
 
 Bootstrap acquires remote repositories into a controlled workspace, discovers every accessible surface, finds tests and commands, identifies existing drafts, and reports the next action.
+
+It also discovers Git roots and sanitized remotes, linked repositories, documentation and prior
+work, API contracts and cached/generated copies, OpenAPI server addresses, runtime URL and
+environment-variable references, backend API behavior, and scope warnings such as mock or fixture
+repositories.
 
 Add `--source-ref "api=v1.4.2"` to pin a Git branch, tag, or commit for any remote source.
 

@@ -1,6 +1,6 @@
 ---
 name: product-playbook
-description: Create, reconcile, audit, or incrementally improve evidence-backed manual testing and product-usage playbooks from local directories, local repositories, remote Git repositories, tests, contracts, source, documentation, and optional live verification. Use for frontend, API, backend, full-stack, CLI, service, worker, integration, and mobile products, including monorepos, multi-repository products, partial team contributions, manual testing documentation, product playbooks, and playbook reconciliation. Never invent interface terms or behavior. Keep published output tester-facing and all source locations runtime-supplied.
+description: Inspect product workspaces and create, reconcile, audit, or incrementally improve evidence-backed manual testing and product-usage playbooks from local or remote repositories, tests, contracts, source, documentation, and optional live verification. Use for first-run repository intake and for frontend, API, backend, full-stack, CLI, service, worker, RAG, integration, SDK, helper-library, tooling, data, contract, extension, and mobile products, including monorepos, multi-repository products, partial team contributions, manual testing documentation, product playbooks, and playbook reconciliation. Never invent interface terms or behavior. Keep published output tester-facing and all source locations runtime-supplied.
 ---
 
 # Product Playbook
@@ -17,6 +17,40 @@ unresolved notes there. Never publish source maps or authoring metadata in teste
 The state writer adds `"managed_by": "product-playbook"` so contributors can identify the owning
 tool without storing a machine path or repository-specific URL.
 
+## Start with an intake when intent is unclear
+
+When the user invokes the skill without naming an action, source, or destination, run the bootstrap
+from the current working directory with no arguments:
+
+```bash
+python3 <skill-dir>/scripts/bootstrap_playbook.py
+```
+
+This is an inspect-and-confirm pass. Do not write playbook files, run tests, operate a live
+interface, clone an unprovided remote, or update state yet. Present:
+
+- every discovered local repository root and sanitized Git remote;
+- the assumed role of each source, including product, docs, frontend, API, RAG, worker,
+  integration, SDK, helper library, contract, extension, data, and tooling roles;
+- linked or nested repository candidates;
+- contracts, cached or generated contract copies, runtime-address candidates, API behavior,
+  tests, commands, documentation, and repository instructions;
+- existing playbooks, portable state, QA artifacts, scenario catalogs, reports, and other prior
+  work;
+- the proposed canonical output and whether to continue, reconcile, or create.
+
+Then ask the user to confirm:
+
+1. Are these the correct local and remote addresses for the in-scope product repositories?
+2. Which repository is the canonical documentation repository?
+3. Are the assumed repository roles and intended product boundary correct?
+4. Should existing work continue at the discovered canonical path?
+5. Do they want an audit, an edit or reconciliation, a new playbook, or verification?
+
+Bundle obvious confirmations into one concise intake rather than asking them serially. Stop before
+writing until the user confirms or corrects material assumptions. A mechanical default such as
+`<source>/docs/playbook` is only a proposal during this intake.
+
 ## Start from the available inputs
 
 Require at least one evidence source. Accept local directories and Git repository URLs:
@@ -25,9 +59,11 @@ Require at least one evidence source. Accept local directories and Git repositor
 SOURCE_ID=PATH_OR_URL
 ```
 
-Use stable, product-neutral source IDs such as `web`, `api`, `mobile`, `docs`, or `contracts`.
-Locations are runtime-only. Store only the portable manager identifier, source IDs,
-source-relative paths, content hashes, and revisions in collaboration state.
+Use stable, product-neutral source IDs such as `web`, `api`, `rag`, `worker`, `sdk`, `shared`,
+`integration`, `docs`, or `contracts`. A source ID describes responsibility, not repository
+technology or branding. Locations and Git remotes are runtime-only. Store only the portable
+manager identifier, source IDs, source-relative paths, content hashes, and revisions in
+collaboration state.
 
 Accept:
 
@@ -44,13 +80,19 @@ Accept:
 Do not require a separate docs source. Discover documentation inside supplied sources. Treat absent
 documentation as a discovery result, not a reason to delay analysis.
 
+Do not assume one repository equals one product component. Inspect workspace manifests, nested Git
+repositories, submodules, packages, services, workers, jobs, RAG and retrieval code, integrations,
+SDKs, shared libraries, extensions, data pipelines, contract-only roots, and tooling. Ask which
+ones belong to the same tester-facing product when the boundary is ambiguous.
+
 ## Bootstrap in one command
 
 Run:
 
 ```bash
 python3 <skill-dir>/scripts/bootstrap_playbook.py \
-  --source "product=<path-or-url>"
+  --source "product=<path-or-url>" \
+  --intent auto
 ```
 
 Repeat `--source` and `--docs-source` as needed. Add `--source-ref "SOURCE_ID=REF"` for a branch,
@@ -59,14 +101,27 @@ tag, or commit. Add `--workspace-dir` when the caller chooses where remote read-
 The bootstrap report provides:
 
 - acquired runtime roots and cleanup obligations;
+- local Git roots, branches, sanitized remotes, and linked repository candidates;
 - all detected surfaces and confidence, without collapsing mixed products;
-- components, frameworks, tests, commands, contracts, interfaces, and instruction files;
+- components, frameworks, tests, commands, documentation, interfaces, and instruction files;
+- OpenAPI, Swagger, AsyncAPI, GraphQL, protobuf, RAML, generated API schemas, frontend contract
+  copies, contract server addresses, runtime URLs, and API-address environment variables;
+- backend routes, handlers, authorization, schema, integration, webhook, RAG, and retrieval
+  behavior candidates;
+- existing playbooks, state, QA plans, UAT material, scenario catalogs, reports, API-client
+  collections, and other prior work;
 - unclassified evidence and recommended next probes;
 - existing draft candidates and the canonical destination decision;
+- structured assumptions and confirmation questions when `--intent auto` is used;
 - the suggested run scope and next action.
 
 Read repository instruction files before interpreting evidence. Do not modify evidence sources.
 Clean temporary remote checkouts after the run.
+
+Repository instructions may declare a checkout to be a mock, fixture, generated copy, partial
+export, or wrapper. Treat that as a scope warning. Do not promote fixture tests or absent-source
+documentation into product truth. When a contract, catalog, mock, and implementation disagree,
+report the conflict and ask which product boundary is intended.
 
 ## Choose the canonical output
 
@@ -81,6 +136,10 @@ Resolve the destination in this order:
 Ask which draft is authoritative when several credible drafts exist. Never merge divergent drafts
 automatically. Reuse the same canonical output as new sources or teams contribute later. Do not
 fork the playbook merely because evidence lives in another repository.
+
+During an auto-intake, confirm even a unique draft or default destination before writing. Ask
+whether discovered state and prior work should continue on the same path. If a product-wide
+playbook exists in a documentation repository, do not create a per-repository fork.
 
 The output may live inside an evidence repository, in a separate repository, or in any explicit
 directory. Exclude it from source discovery and fingerprints.
@@ -133,6 +192,11 @@ Use statuses only in the current chat and temporary evidence ledger:
 
 Do not publish or persist these statuses. Resolve `UNRESOLVED` content, omit it, or ask the user.
 Treat previous verification as non-current unless the scenario passes again during this run.
+
+Use contract copies and generated clients carefully. A frontend `openapi.json`, generated schema,
+or cached client proves what that consumer was generated against, not automatically what the
+current backend deploys. Compare revisions, contract metadata, paths, operations, schemas, server
+addresses, and backend behavior. Record conflicts in chat and do not silently choose one copy.
 
 ## Run the workflow
 

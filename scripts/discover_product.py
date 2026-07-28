@@ -10,15 +10,19 @@ import re
 import subprocess
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from source_utils import (
     SourceSpec,
     acquire_source,
     create_workspace,
+    discover_nested_git_repositories,
     ensure_unique_sources,
+    git_repository_identity,
     is_remote_locator,
     legacy_specs,
     parse_source_spec,
+    sanitize_remote_locator,
 )
 
 
@@ -36,7 +40,6 @@ SKIP_DIRS = {
     "build",
     "coverage",
     "dist",
-    "generated",
     "node_modules",
     "out",
     "playwright-report",
@@ -71,6 +74,26 @@ SOURCE_SUFFIXES = {
 }
 DOC_SUFFIXES = {".adoc", ".md", ".mdx", ".rst", ".txt"}
 CONTRACT_SUFFIXES = {".graphql", ".gql", ".proto", ".raml"}
+STRUCTURED_CONTRACT_SUFFIXES = {".json", ".yaml", ".yml"}
+SURFACE_CHOICES = (
+    "auto",
+    "frontend",
+    "api",
+    "fullstack",
+    "cli",
+    "service",
+    "worker",
+    "mobile",
+    "rag",
+    "library",
+    "sdk",
+    "integration",
+    "extension",
+    "data",
+    "contracts",
+    "docs",
+    "tooling",
+)
 MANIFEST_NAMES = {
     "Cargo.toml",
     "Gemfile",
@@ -98,9 +121,46 @@ TEST_NAME = re.compile(
 )
 PAGE_OBJECT_NAME = re.compile(r"(^|[-_.])(page|page[-_]?object)([-_.]|$)", re.IGNORECASE)
 INTERFACE_NAME = re.compile(
-    r"(route|router|routing|controller|endpoint|handler|urls|command|cli|worker|job|consumer)",
+    r"(route|router|routing|controller|endpoint|handler|urls|command|cli|worker|job|consumer|"
+    r"retriev|embedding|vector|guardrail|connector|adapter|webhook)",
     re.IGNORECASE,
 )
+DOCUMENTATION_NAME = re.compile(
+    r"(playbook|manual|scenario|test[-_ ]?plan|testing[-_ ]?strategy|qa|uat|runbook|"
+    r"test[-_ ]?report|results?|acceptance|postman|insomnia)",
+    re.IGNORECASE,
+)
+DOCUMENTATION_DIRS = {
+    "api scenarios",
+    "docs",
+    "documentation",
+    "manual",
+    "playbook",
+    "qa",
+    "runbooks",
+    "scenarios",
+}
+URL_PATTERN = re.compile(r"\b(?:https?|wss?)://[^\s<>'\"`]+", re.IGNORECASE)
+ADDRESS_VARIABLE = re.compile(
+    r"\b(?:VITE_|NEXT_PUBLIC_|PUBLIC_)?(?:API|APP|BACKEND|FRONTEND|SERVICE|OPENAPI|"
+    r"SWAGGER|RAG|VECTOR|DOCS|GRAPHQL)[A-Z0-9_]*(?:URL|URI|HOST|ENDPOINT)\b"
+)
+SECRET_FILE_NAME = re.compile(
+    r"(^|[._-])(env|secret|credential|token|password|private[-_]?key)([._-]|$)",
+    re.IGNORECASE,
+)
+LOCKFILE_NAMES = {
+    "bun.lock",
+    "bun.lockb",
+    "cargo.lock",
+    "composer.lock",
+    "gemfile.lock",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "poetry.lock",
+    "uv.lock",
+    "yarn.lock",
+}
 SCENARIO_HEADING = re.compile(
     r"^## [A-Z][A-Z0-9]{1,5}-\d{2,3}:", re.MULTILINE
 )
@@ -162,7 +222,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--product-surface",
-        choices=("auto", "frontend", "api", "fullstack", "cli", "service", "mobile"),
+        choices=SURFACE_CHOICES,
         default="auto",
         help="Product-surface override. Defaults to auto-detection.",
     )
@@ -377,18 +437,477 @@ def detect_test_frameworks(
     ]
 
 
-def detect_contracts(files: list[Path], root: Path) -> list[str]:
-    contracts: list[str] = []
+def contract_kind(path: Path) -> str | None:
+    rel_lower = path.as_posix().lower()
+    name = path.name.lower()
+    suffix = path.suffix.lower()
+    if name == ".gitkeep":
+        return None
+    if suffix in DOC_SUFFIXES and any(
+        token in rel_lower for token in ("openapi", "swagger", "asyncapi", "graphql", "protobuf")
+    ):
+        return "contract-documentation"
+    if suffix in SOURCE_SUFFIXES and any(
+        token in rel_lower for token in ("openapi", "swagger", "asyncapi")
+    ):
+        if any(token in rel_lower for token in ("api-schema", "api_schema", "generated/api")):
+            return "generated-api-schema"
+        return "contract-tooling"
+    if "asyncapi" in rel_lower:
+        return "asyncapi" if name.startswith("asyncapi.") else "contract-fixture"
+    if "openapi" in rel_lower:
+        return "openapi" if name.startswith("openapi.") else "contract-fixture"
+    if "swagger" in rel_lower:
+        return "swagger" if name.startswith("swagger.") else "contract-fixture"
+    if suffix in {".graphql", ".gql"}:
+        return "graphql"
+    if suffix == ".proto":
+        return "protobuf"
+    if suffix == ".raml":
+        return "raml"
+    if suffix in SOURCE_SUFFIXES and any(
+        token in rel_lower for token in ("api-schema", "api_schema", "generated/api")
+    ):
+        return "generated-api-schema"
+    if name in {"schema.json", "schema.yaml", "schema.yml"} and any(
+        token in rel_lower for token in ("api", "graphql", "contract")
+    ):
+        return "api-schema"
+    return None
+
+
+def inspect_structured_contract(path: Path) -> dict[str, Any]:
+    if path.suffix.lower() != ".json":
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict) or not ({"openapi", "swagger"} & set(data)):
+        return {}
+    paths = data.get("paths")
+    operations = 0
+    tags: set[str] = set()
+    if isinstance(paths, dict):
+        for path_item in paths.values():
+            if not isinstance(path_item, dict):
+                continue
+            for method, operation in path_item.items():
+                if method.lower() not in {
+                    "get",
+                    "post",
+                    "put",
+                    "patch",
+                    "delete",
+                    "options",
+                    "head",
+                    "trace",
+                }:
+                    continue
+                operations += 1
+                if isinstance(operation, dict):
+                    tags.update(
+                        str(tag)
+                        for tag in operation.get("tags", [])
+                        if isinstance(tag, str)
+                    )
+    servers = []
+    for server in data.get("servers", []):
+        if not isinstance(server, dict) or not isinstance(server.get("url"), str):
+            continue
+        servers.append(sanitize_remote_locator(server["url"]))
+    info = data.get("info") if isinstance(data.get("info"), dict) else {}
+    security_schemes = (
+        data.get("components", {}).get("securitySchemes", {})
+        if isinstance(data.get("components"), dict)
+        else {}
+    )
+    return {
+        "title": info.get("title"),
+        "version": info.get("version"),
+        "path_count": len(paths) if isinstance(paths, dict) else 0,
+        "operation_count": operations,
+        "tags": sorted(tags),
+        "server_addresses": sorted(set(servers)),
+        "security_schemes": (
+            sorted(security_schemes) if isinstance(security_schemes, dict) else []
+        ),
+    }
+
+
+def detect_contract_evidence(
+    files: list[Path],
+    root: Path,
+    max_items: int,
+) -> list[dict[str, Any]]:
+    evidence: list[dict[str, Any]] = []
     for path in files:
-        lower = path.name.lower()
+        kind = contract_kind(Path(relative(path, root)))
+        if not kind:
+            continue
+        rel = relative(path, root)
+        lower_parts = {part.lower() for part in Path(rel).parts}
+        if path.suffix.lower() in SOURCE_SUFFIXES:
+            role = "generated-client-or-schema"
+        elif lower_parts & {
+            "cache",
+            "cached",
+            "fixtures",
+            "generated",
+            "test",
+            "tests",
+        } or any(token in rel.lower() for token in ("api-schema", "api_schema")):
+            role = "cached-or-generated"
+        else:
+            role = "contract-snapshot"
+        item: dict[str, Any] = {
+            "path": rel,
+            "kind": kind,
+            "role": role,
+            "is_contract_artifact": kind
+            in {
+                "api-schema",
+                "asyncapi",
+                "generated-api-schema",
+                "graphql",
+                "openapi",
+                "protobuf",
+                "raml",
+                "swagger",
+            },
+        }
+        summary = inspect_structured_contract(path)
+        if summary:
+            item["summary"] = summary
+        evidence.append(item)
+    return sorted(evidence, key=lambda item: item["path"])[:max_items]
+
+
+def detect_contracts(files: list[Path], root: Path) -> list[str]:
+    return [
+        item["path"]
+        for item in detect_contract_evidence(files, root, max_items=len(files) or 1)
+        if item["is_contract_artifact"]
+    ]
+
+
+def discover_documentation_candidates(
+    files: list[Path],
+    root: Path,
+    max_items: int,
+) -> list[dict[str, str]]:
+    candidates: list[dict[str, str]] = []
+    for path in files:
+        if path.suffix.lower() not in DOC_SUFFIXES:
+            continue
+        rel = relative(path, root)
+        if set(Path(rel).parts) & {".agents", ".claude", ".codex"}:
+            continue
+        parts = {part.lower().replace("_", " ").replace("-", " ") for part in Path(rel).parts}
+        reason = None
+        if path.name.lower() in {"readme.md", "readme.mdx", "readme.rst"}:
+            reason = "repository or component overview"
+        elif parts & DOCUMENTATION_DIRS:
+            reason = "documentation directory"
+        elif DOCUMENTATION_NAME.search(rel):
+            reason = "manual testing, scenario, or prior-work name"
+        if reason:
+            candidates.append({"path": rel, "reason": reason})
+    return sorted(candidates, key=lambda item: item["path"])[:max_items]
+
+
+def discover_prior_work(
+    files: list[Path],
+    root: Path,
+    max_items: int,
+) -> list[dict[str, str]]:
+    candidates: list[dict[str, str]] = []
+    for path in files:
+        rel = relative(path, root)
+        if set(Path(rel).parts) & {".agents", ".claude", ".codex"}:
+            continue
+        rel_lower = rel.lower()
+        kind = None
+        if path.name == ".product-playbook-state.json":
+            kind = "product-playbook-state"
+        elif DOCUMENTATION_NAME.search(rel) and path.suffix.lower() in {
+            *DOC_SUFFIXES,
+            ".docx",
+            ".html",
+            ".json",
+        }:
+            kind = "manual-testing-or-report"
+        elif path.name.lower() in {
+            "coverage.xml",
+            "junit.xml",
+            "test-results.xml",
+        }:
+            kind = "test-artifact"
+        elif "postman" in rel_lower and path.suffix.lower() == ".json":
+            kind = "api-client-collection"
+        if kind:
+            candidates.append({"path": rel, "kind": kind})
+    return sorted(candidates, key=lambda item: item["path"])[:max_items]
+
+
+def discover_scope_warnings(
+    files: list[Path],
+    root: Path,
+    max_items: int,
+) -> list[dict[str, str]]:
+    warnings: list[dict[str, str]] = []
+    patterns = (
+        (
+            "declared-mock-or-fixture",
+            (
+                "mini-mock",
+                "not the real",
+                "mock repository",
+                "fixture repository",
+                "demo repository",
+            ),
+        ),
+        (
+            "declared-source-unavailable",
+            (
+                "source is not available",
+                "source code is not available",
+                "use the remote",
+            ),
+        ),
+        (
+            "declared-generated-copy",
+            (
+                "this repository is generated",
+                "this checkout is generated",
+                "generated copy",
+                "generated fixture",
+            ),
+        ),
+    )
+    for path in files:
+        if path.name not in {"README.md", "AGENTS.md", "CLAUDE.md"}:
+            continue
+        content = read_text(path, 200_000).lower()
+        for kind, phrases in patterns:
+            if any(phrase in content for phrase in phrases):
+                warnings.append(
+                    {
+                        "path": relative(path, root),
+                        "kind": kind,
+                        "message": (
+                            "Repository text limits how this source may be treated. "
+                            "Read it before accepting product-scope assumptions."
+                        ),
+                    }
+                )
+                break
+    return sorted(warnings, key=lambda item: item["path"])[:max_items]
+
+
+def safe_address_text(path: Path) -> str:
+    if (
+        SECRET_FILE_NAME.search(path.name)
+        or path.name.lower() in LOCKFILE_NAMES
+        or path.suffix.lower() in {".lock", ".pem", ".key"}
+    ):
+        return ""
+    return read_text(path, 200_000)
+
+
+def discover_addresses(
+    files: list[Path],
+    root: Path,
+    contract_evidence: list[dict[str, Any]],
+    max_items: int,
+) -> list[dict[str, str]]:
+    addresses: dict[tuple[str, str, str], dict[str, str]] = {}
+    for item in contract_evidence:
+        summary = item.get("summary")
+        if not isinstance(summary, dict):
+            continue
+        for value in summary.get("server_addresses", []):
+            key = ("openapi-server", str(value), item["path"])
+            addresses[key] = {
+                "kind": "openapi-server",
+                "role": "contract-server",
+                "value": str(value),
+                "path": item["path"],
+            }
+
+    eligible_suffixes = {*DOC_SUFFIXES, *SOURCE_SUFFIXES, ".json", ".yaml", ".yml", ".toml"}
+    for path in files:
+        if path.suffix.lower() not in eligible_suffixes:
+            continue
+        content = safe_address_text(path)
+        if not content:
+            continue
+        rel = relative(path, root)
+        for raw in URL_PATTERN.findall(content):
+            if any(token in raw for token in ("${", "{{", "}}", "<", ">")):
+                continue
+            value = sanitize_remote_locator(raw.rstrip(".,);]}"))
+            parsed = urlsplit(value)
+            if not parsed.hostname:
+                continue
+            key = ("runtime-url", value, rel)
+            rel_parts = {part.lower() for part in Path(rel).parts}
+            if rel_parts & {"test", "tests", "fixtures"} or TEST_NAME.search(path.name):
+                role = "test-fixture"
+            elif any(
+                token in value.lower()
+                for token in ("localhost", "127.0.0.1", "0.0.0.0")
+            ):
+                role = "local-runtime"
+            elif any(
+                parsed.hostname.endswith(suffix)
+                for suffix in (".example", ".example.com", ".example.test")
+            ) or parsed.hostname in {"example.com", "example.test", "www.example.com"}:
+                role = "documentation-example"
+            elif (
+                "api" in parsed.hostname.split(".")[0]
+                or any(
+                    token in parsed.path.lower()
+                    for token in ("/api", "/openapi", "/swagger", "/redoc")
+                )
+                or any(
+                    token in rel.lower()
+                    for token in ("backend", "service", "api scenario")
+                )
+            ):
+                role = "api-or-service"
+            else:
+                role = "external-reference"
+            addresses[key] = {
+                "kind": "runtime-url",
+                "role": role,
+                "value": value,
+                "path": rel,
+            }
+        for variable in ADDRESS_VARIABLE.findall(content):
+            key = ("environment-variable", variable, rel)
+            addresses[key] = {
+                "kind": "environment-variable",
+                "role": "runtime-configuration",
+                "value": variable,
+                "path": rel,
+            }
+        if len(addresses) >= max_items * 2:
+            break
+    return sorted(
+        addresses.values(),
+        key=lambda item: (item["kind"], item["value"], item["path"]),
+    )[:max_items]
+
+
+def discover_api_behavior(
+    files: list[Path],
+    root: Path,
+    max_items: int,
+) -> list[dict[str, str]]:
+    candidates: dict[str, dict[str, str]] = {}
+    markers = {
+        "route-or-handler": (
+            "@router.",
+            "@app.",
+            "router.get(",
+            "router.post(",
+            "app.get(",
+            "app.post(",
+            "@getmapping",
+            "@postmapping",
+            "urlpatterns",
+        ),
+        "authorization": (
+            "permission",
+            "authorize",
+            "require_auth",
+            "require_session",
+            "access control",
+        ),
+        "schema-or-serializer": (
+            "basemodel",
+            "serializer",
+            "request schema",
+            "response schema",
+        ),
+        "rag-or-retrieval": (
+            "embedding",
+            "retrieval",
+            "vector",
+            "guardrail",
+            "prompt injection",
+        ),
+        "integration-or-webhook": (
+            "webhook",
+            "connector",
+            "integration",
+        ),
+    }
+    for path in files:
+        if path.suffix.lower() not in SOURCE_SUFFIXES:
+            continue
+        rel = relative(path, root)
+        rel_parts = {part.lower() for part in Path(rel).parts}
         if (
-            path.suffix.lower() in CONTRACT_SUFFIXES
-            or lower.startswith("openapi.")
-            or lower.startswith("swagger.")
-            or "asyncapi" in lower
+            TEST_NAME.search(path.name)
+            or rel_parts & {"test", "tests", "testing_report"}
         ):
-            contracts.append(relative(path, root))
-    return sorted(contracts)
+            continue
+        content = read_text(path, 150_000).lower()
+        for kind, tokens in markers.items():
+            if any(token in content for token in tokens):
+                candidates.setdefault(rel, {"path": rel, "kind": kind})
+                break
+    return sorted(candidates.values(), key=lambda item: item["path"])[:max_items]
+
+
+def infer_linked_repository_roles(
+    repositories: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    enriched = []
+    role_tokens = {
+        "docs": {"docs", "documentation", "handbook"},
+        "frontend": {"frontend", "web", "ui"},
+        "api": {"api", "backend", "server"},
+        "rag": {"rag", "retrieval", "search", "vector"},
+        "worker": {"worker", "jobs", "consumer"},
+        "integration": {"integration", "connector", "adapter"},
+        "sdk": {"sdk", "client"},
+        "library": {"shared", "common", "helper", "helpers", "library", "package"},
+        "tooling": {"automation", "scripts", "tools", "tooling"},
+    }
+    for repository in repositories:
+        path_tokens = set(
+            token
+            for part in Path(str(repository["path"])).parts
+            for token in re.split(r"[-_. ]+", part.lower())
+            if token
+        )
+        assumed_roles = [
+            role
+            for role, tokens in role_tokens.items()
+            if path_tokens & tokens
+        ]
+        git_root = repository.get("git_root")
+        playbook_candidates = (
+            discover_drafts(
+                [Path(git_root)],
+                [Path(git_root)],
+                None,
+                None,
+            )
+            if isinstance(git_root, str)
+            else []
+        )
+        enriched.append(
+            {
+                **repository,
+                "assumed_roles": assumed_roles or ["unknown"],
+                "playbook_candidates": playbook_candidates,
+            }
+        )
+    return enriched
 
 
 def classify_tests_and_interfaces(
@@ -532,14 +1051,36 @@ def classify_tests_and_interfaces(
     }
 
 
-def detect_project_signals(project_text: str, files: list[Path]) -> list[dict[str, Any]]:
+def detect_project_signals(
+    project_text: str,
+    files: list[Path],
+    root: Path,
+) -> list[dict[str, Any]]:
     signals: dict[str, list[str]] = {
+        "frontend": [],
         "api": [],
         "cli": [],
         "service": [],
+        "worker": [],
         "mobile": [],
+        "rag": [],
+        "library": [],
+        "sdk": [],
+        "integration": [],
+        "extension": [],
+        "data": [],
+        "tooling": [],
     }
     token_groups = {
+        "frontend": (
+            '"react"',
+            "next",
+            "nuxt",
+            "svelte",
+            "vue",
+            "angular",
+            "solid-js",
+        ),
         "api": (
             "fastapi",
             "flask",
@@ -556,7 +1097,23 @@ def detect_project_signals(project_text: str, files: list[Path]) -> list[dict[st
         ),
         "cli": ("commander", "click", "typer", "argparse", "cobra", "clap"),
         "service": ("celery", "bullmq", "sidekiq", "kafka", "rabbitmq", "temporal"),
+        "worker": ("celery", "bullmq", "sidekiq", "kafka", "rabbitmq", "temporal"),
         "mobile": ("react-native", "flutter", "androidx", "swiftui"),
+        "rag": (
+            "langchain",
+            "llama-index",
+            "llamaindex",
+            "pgvector",
+            "pinecone",
+            "weaviate",
+            "chromadb",
+            "qdrant",
+            "milvus",
+        ),
+        "sdk": ("sdk", "api-client", "openapi-generator"),
+        "integration": ("webhook", "connector", "integration"),
+        "extension": ("vscode", "browser-extension", "webextension"),
+        "data": ("airflow", "dbt", "dagster", "prefect"),
     }
     for category, tokens in token_groups.items():
         for token in tokens:
@@ -565,6 +1122,77 @@ def detect_project_signals(project_text: str, files: list[Path]) -> list[dict[st
                 break
     if any(path.name in {"AndroidManifest.xml", "pubspec.yaml"} for path in files):
         add_signal(signals, "mobile", "mobile project manifest")
+    path_tokens = {
+        token
+        for path in files
+        for part in path.relative_to(root).parts
+        for token in re.split(r"[-_. ]+", part.lower())
+        if token
+    }
+    if path_tokens & {"rag", "retrieval", "embeddings", "vectors", "guardrails"}:
+        add_signal(signals, "rag", "RAG, retrieval, embedding, vector, or guardrail source")
+    if path_tokens & {"integrations", "connectors", "adapters", "webhooks"}:
+        add_signal(signals, "integration", "integration, connector, adapter, or webhook source")
+    if path_tokens & {"workers", "jobs", "consumers", "queues"}:
+        add_signal(signals, "worker", "worker, job, consumer, or queue source")
+    if root.name.lower() in {
+        "common",
+        "helper",
+        "helpers",
+        "lib",
+        "libs",
+        "library",
+        "packages",
+        "shared",
+        "utils",
+    }:
+        add_signal(signals, "library", "helper, shared, or library component name")
+    if root.name.lower() in {"sdk", "client", "api-client"}:
+        add_signal(signals, "sdk", "SDK or client component name")
+    if any(path.name in {"dbt_project.yml", "dbt_project.yaml"} for path in files):
+        add_signal(signals, "data", "data project manifest")
+    if root.name.lower() in {"scripts", "tools", "tooling", "automation"}:
+        add_signal(signals, "tooling", "tooling or automation component name")
+    if '"exports"' in project_text or '"types"' in project_text:
+        add_signal(signals, "library", "package exports or type declarations")
+    source_probe = "\n".join(
+        read_text(path, 60_000).lower()
+        for path in files[:300]
+        if path.suffix.lower() in SOURCE_SUFFIXES
+    )
+    if any(
+        marker in source_probe
+        for marker in (
+            "argparse.argumentparser",
+            "click.command",
+            "typer.typer",
+            "commander.command",
+        )
+    ):
+        add_signal(signals, "cli", "command registration in executable source")
+    if any(
+        marker in source_probe
+        for marker in (
+            "@router.get",
+            "@router.post",
+            "@app.get",
+            "@app.post",
+            "fastapi(",
+            "express()",
+        )
+    ):
+        add_signal(signals, "api", "route registration in application source")
+    if any(
+        marker in source_probe
+        for marker in (
+            "retrieve_context",
+            "vector_store",
+            "embedding",
+            "prompt injection",
+            "guardrail",
+        )
+    ):
+        add_signal(signals, "rag", "RAG or retrieval behavior in application source")
     return [
         {"name": name, "signals": reasons}
         for name, reasons in signals.items()
@@ -580,25 +1208,7 @@ def select_surface(
 ) -> str:
     if override != "auto":
         return override
-    signal_names = {signal["name"] for signal in project_signals}
-    browser = bool(classified["browser_test_files"])
-    api = bool(classified["api_test_files"] or contracts or "api" in signal_names)
-    cli = bool(classified["cli_test_files"] or "cli" in signal_names)
-    service = bool(classified["service_test_files"] or "service" in signal_names)
-    mobile = bool(classified["mobile_test_files"] or "mobile" in signal_names)
-    if browser and api:
-        return "fullstack"
-    if browser:
-        return "frontend"
-    if api:
-        return "api"
-    if cli:
-        return "cli"
-    if service:
-        return "service"
-    if mobile:
-        return "mobile"
-    return "unknown"
+    return surface_profile(classified, contracts, project_signals)["primary_surface"]
 
 
 def surface_profile(
@@ -610,6 +1220,8 @@ def surface_profile(
     scores: dict[str, float] = {}
     if classified["browser_test_files"]:
         scores["frontend"] = 0.95
+    elif "frontend" in signal_names:
+        scores["frontend"] = 0.72
     if classified["api_test_files"] or contracts:
         scores["api"] = 0.95
     elif "api" in signal_names:
@@ -622,6 +1234,20 @@ def surface_profile(
         scores["service"] = 0.9
     elif "service" in signal_names:
         scores["service"] = 0.7
+    for name, confidence in {
+        "worker": 0.78,
+        "rag": 0.82,
+        "library": 0.68,
+        "sdk": 0.75,
+        "integration": 0.76,
+        "extension": 0.76,
+        "data": 0.74,
+        "tooling": 0.7,
+    }.items():
+        if name in signal_names:
+            scores[name] = confidence
+    if contracts:
+        scores["contracts"] = 0.9
     if classified["mobile_test_files"]:
         scores["mobile"] = 0.92
     elif "mobile" in signal_names:
@@ -747,8 +1373,17 @@ def discover_component_candidates(
             component_root,
             args.max_items,
         )
-        contracts = detect_contracts(component_files, component_root)
-        signals = detect_project_signals(project_text, component_files)
+        contract_evidence = detect_contract_evidence(
+            component_files,
+            component_root,
+            args.max_items,
+        )
+        contracts = [
+            item["path"]
+            for item in contract_evidence
+            if item["is_contract_artifact"]
+        ]
+        signals = detect_project_signals(project_text, component_files, component_root)
         profile = surface_profile(classified, contracts, signals)
         if args.product_surface != "auto":
             profile = {
@@ -773,6 +1408,7 @@ def discover_component_candidates(
                     frameworks,
                 ),
                 "contract_candidates": contracts[: args.max_items],
+                "contract_evidence": contract_evidence,
             }
         )
     return components
@@ -787,8 +1423,13 @@ def discover_repository(
     project_text, manifests = select_manifests(files, root)
     frameworks = detect_test_frameworks(files, project_text, root)
     classified = classify_tests_and_interfaces(files, root, args.max_items)
-    contracts = detect_contracts(files, root)
-    project_signals = detect_project_signals(project_text, files)
+    contract_evidence = detect_contract_evidence(files, root, args.max_items)
+    contracts = [
+        item["path"]
+        for item in contract_evidence
+        if item["is_contract_artifact"]
+    ]
+    project_signals = detect_project_signals(project_text, files, root)
     surface = select_surface(args.product_surface, classified, contracts, project_signals)
     profile = surface_profile(classified, contracts, project_signals)
     if args.product_surface != "auto":
@@ -797,6 +1438,12 @@ def discover_repository(
             "surface_confidence": {args.product_surface: 1.0},
             "primary_surface": args.product_surface,
         }
+    if "frontend" in profile["surfaces"]:
+        for item in contract_evidence:
+            item["repository_context"] = "frontend-contract-copy-or-codegen-input"
+    elif profile["primary_surface"] in {"api", "service"}:
+        for item in contract_evidence:
+            item["repository_context"] = "backend-or-service-contract"
     unclassified = sorted(
         {
             relative(path, root)
@@ -822,6 +1469,37 @@ def discover_repository(
         "project_signals": project_signals,
         "project_manifests": manifests,
         "contract_candidates": contracts[: args.max_items],
+        "contract_evidence": contract_evidence,
+        "address_candidates": discover_addresses(
+            files,
+            root,
+            contract_evidence,
+            args.max_items,
+        ),
+        "documentation_candidates": discover_documentation_candidates(
+            files,
+            root,
+            args.max_items,
+        ),
+        "prior_work_candidates": discover_prior_work(
+            files,
+            root,
+            args.max_items,
+        ),
+        "scope_warnings": discover_scope_warnings(
+            files,
+            root,
+            args.max_items,
+        ),
+        "api_behavior_candidates": discover_api_behavior(
+            files,
+            root,
+            args.max_items,
+        ),
+        "repository_identity": git_repository_identity(root),
+        "linked_repository_candidates": infer_linked_repository_roles(
+            discover_nested_git_repositories(root)
+        ),
         "test_commands": detect_test_commands(root, files, frameworks),
         "unclassified_test_candidates": unclassified,
         "recommended_next_probes": (
@@ -860,13 +1538,37 @@ def discover_docs(
             )
             continue
         files = [root] if root.is_file() else walk_files(root)
+        contract_evidence = detect_contract_evidence(
+            files,
+            root if root.is_dir() else root.parent,
+            max_items,
+        )
         docs = [
             relative(path, root if root.is_dir() else root.parent)
             for path in files
             if path.is_file() and path.suffix.lower() in DOC_SUFFIXES
         ]
         reports.append(
-            {"source_id": source_id, "root": str(root), "files": sorted(docs)[:max_items]}
+            {
+                "source_id": source_id,
+                "root": str(root),
+                "files": sorted(docs)[:max_items],
+                "repository_identity": git_repository_identity(
+                    root if root.is_dir() else root.parent
+                ),
+                "contract_evidence": contract_evidence,
+                "address_candidates": discover_addresses(
+                    files,
+                    root if root.is_dir() else root.parent,
+                    contract_evidence,
+                    max_items,
+                ),
+                "prior_work_candidates": discover_prior_work(
+                    files,
+                    root if root.is_dir() else root.parent,
+                    max_items,
+                ),
+            }
         )
     return reports
 
@@ -909,6 +1611,28 @@ def collect_source_specs(args: argparse.Namespace) -> list[SourceSpec]:
     ]
 
 
+def inspect_playbook_state(directory: Path) -> dict[str, Any] | None:
+    state_path = directory / ".product-playbook-state.json"
+    if not state_path.is_file():
+        return None
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"path": state_path.name, "valid_json": False}
+    if not isinstance(state, dict):
+        return {"path": state_path.name, "valid_json": False}
+    sources = state.get("sources")
+    scenarios = state.get("scenarios")
+    return {
+        "path": state_path.name,
+        "valid_json": True,
+        "managed_by": state.get("managed_by"),
+        "schema_version": state.get("schema_version"),
+        "source_ids": sorted(sources) if isinstance(sources, dict) else [],
+        "scenario_count": len(scenarios) if isinstance(scenarios, dict) else 0,
+    }
+
+
 def inspect_draft_candidate(
     path: Path,
     *,
@@ -935,6 +1659,8 @@ def inspect_draft_candidate(
         "scenario_count": scenario_count,
         "has_readme": has_hub,
         "has_results_template": has_results,
+        "state": inspect_playbook_state(directory),
+        "legacy_state_found": (directory / ".product-playbook").is_dir(),
     }
 
 
@@ -1033,6 +1759,16 @@ def main() -> int:
     drafts = discover_drafts(
         code_roots, docs_paths, args.draft_path, args.output_dir
     )
+    linked_drafts = [
+        {
+            **draft,
+            "linked_from_source_id": repository["source_id"],
+            "linked_repository_path": linked["path"],
+        }
+        for repository in repositories
+        for linked in repository.get("linked_repository_candidates", [])
+        for draft in linked.get("playbook_candidates", [])
+    ]
     if args.draft_path:
         explicit_draft = Path(args.draft_path).expanduser().resolve()
         explicit_directory = explicit_draft.parent if explicit_draft.is_file() else explicit_draft
@@ -1061,6 +1797,14 @@ def main() -> int:
         recommended_output = None
         output_decision = "ask_which_draft"
         ask_before_write = True
+    elif len(linked_drafts) == 1:
+        recommended_output = linked_drafts[0]["path"]
+        output_decision = "confirm_linked_draft"
+        ask_before_write = True
+    elif len(linked_drafts) > 1:
+        recommended_output = None
+        output_decision = "ask_which_linked_draft"
+        ask_before_write = True
     elif (
         len(code_sources) == 1
         and code_sources[0].locator_type == "local"
@@ -1083,6 +1827,79 @@ def main() -> int:
     else:
         mode = "create"
 
+    documentation_reports = discover_docs(
+        [(source.source_id, source.root) for source in docs_sources],
+        args.max_items,
+    )
+    repository_by_source = {
+        repository["source_id"]: repository for repository in repositories
+    }
+    docs_by_source = {
+        report["source_id"]: report for report in documentation_reports
+    }
+    source_addresses = []
+    for source in acquired:
+        detail = (
+            repository_by_source.get(source.source_id)
+            if source.kind == "code"
+            else docs_by_source.get(source.source_id)
+        )
+        source_addresses.append(
+            {
+                "source_id": source.source_id,
+                "kind": source.kind,
+                "local_root": str(source.root),
+                "supplied_locator_type": source.locator_type,
+                "supplied_remote": source.portable_locator,
+                "repository_identity": (
+                    detail.get("repository_identity")
+                    if isinstance(detail, dict)
+                    else git_repository_identity(source.root)
+                ),
+            }
+        )
+    prior_work_candidates: list[dict[str, Any]] = [
+        {
+            "kind": "playbook-draft",
+            **draft,
+        }
+        for draft in drafts
+    ]
+    prior_work_candidates.extend(
+        {
+            "kind": "linked-playbook-draft",
+            **draft,
+        }
+        for draft in linked_drafts
+    )
+    for repository in repositories:
+        prior_work_candidates.extend(
+            {
+                "source_id": repository["source_id"],
+                **candidate,
+            }
+            for candidate in repository["prior_work_candidates"]
+        )
+    for docs_report in documentation_reports:
+        prior_work_candidates.extend(
+            {
+                "source_id": docs_report["source_id"],
+                **candidate,
+            }
+            for candidate in docs_report.get("prior_work_candidates", [])
+        )
+    continuation = (
+        "continue_unique_playbook"
+        if len(drafts) == 1
+        else "confirm_and_continue_linked_playbook"
+        if len(linked_drafts) == 1
+        else "choose_authoritative_playbook"
+        if len(drafts) > 1 or len(linked_drafts) > 1
+        else "review_prior_work_then_create"
+        if prior_work_candidates
+        else "create_new_playbook"
+    )
+
     report: dict[str, Any] = {
         "sources": [
             {
@@ -1096,13 +1913,56 @@ def main() -> int:
             }
             for source in acquired
         ],
+        "source_addresses": source_addresses,
         "repositories": repositories,
-        "documentation": discover_docs(
-            [(source.source_id, source.root) for source in docs_sources],
-            args.max_items,
-        ),
+        "documentation": documentation_reports,
         "selected_frameworks": selected_frameworks or ["unknown"],
         "existing_playbook_candidates": drafts,
+        "linked_playbook_candidates": linked_drafts,
+        "prior_work_candidates": prior_work_candidates[: args.max_items],
+        "continuation_suggestion": continuation,
+        "evidence_summary": {
+            "contract_candidates": sum(
+                len(repository["contract_candidates"]) for repository in repositories
+            )
+            + sum(
+                sum(
+                    1
+                    for item in report.get("contract_evidence", [])
+                    if item.get("is_contract_artifact")
+                )
+                for report in documentation_reports
+            ),
+            "contract_related_evidence": sum(
+                len(repository["contract_evidence"]) for repository in repositories
+            )
+            + sum(
+                len(report.get("contract_evidence", []))
+                for report in documentation_reports
+            ),
+            "address_candidates": sum(
+                len(repository["address_candidates"]) for repository in repositories
+            )
+            + sum(
+                len(report.get("address_candidates", []))
+                for report in documentation_reports
+            ),
+            "api_behavior_candidates": sum(
+                len(repository["api_behavior_candidates"]) for repository in repositories
+            ),
+            "documentation_candidates": sum(
+                len(repository["documentation_candidates"]) for repository in repositories
+            )
+            + sum(len(report.get("files", [])) for report in documentation_reports),
+            "prior_work_candidates": len(prior_work_candidates),
+            "linked_repository_candidates": sum(
+                len(repository["linked_repository_candidates"])
+                for repository in repositories
+            ),
+            "scope_warnings": sum(
+                len(repository["scope_warnings"]) for repository in repositories
+            ),
+        },
         "mode_suggestion": mode,
         "output_decision": output_decision,
         "ask_before_write": ask_before_write,
@@ -1142,6 +2002,17 @@ def main() -> int:
             "reconcile into one product playbook. Suggest a shape like <docs-repo>/playbook only as "
             "an example. Do not invent a repository name."
         )
+    if output_decision == "confirm_linked_draft":
+        report["notes"].append(
+            "One playbook was found in a linked repository that was not supplied as a source. "
+            "Ask whether that repository is the canonical documentation repository and whether to "
+            "continue the discovered path before writing."
+        )
+    if output_decision == "ask_which_linked_draft":
+        report["notes"].append(
+            "Several playbooks were found in linked repositories. Ask which repository and path are "
+            "canonical before writing."
+        )
     if output_decision == "default_single_code_repo":
         report["notes"].append(
             "No existing draft found. Portable default is <code-repo>/docs/playbook unless the user "
@@ -1155,6 +2026,21 @@ def main() -> int:
     if not framework_names and args.test_framework.lower() == "auto":
         report["notes"].append(
             "No known test framework detected. Inspect project test commands and CI before choosing evidence."
+        )
+    if report["evidence_summary"]["linked_repository_candidates"]:
+        report["notes"].append(
+            "Nested or linked Git repositories were found. Confirm which are product, documentation, "
+            "contract, integration, RAG, worker, SDK, or helper-package sources before writing."
+        )
+    if report["evidence_summary"]["scope_warnings"]:
+        report["notes"].append(
+            "Repository instructions describe at least one source as a mock, fixture, generated copy, "
+            "or unavailable implementation. Read those warnings and confirm the intended product scope."
+        )
+    if prior_work_candidates and not drafts:
+        report["notes"].append(
+            "Prior QA, scenario, report, state, or API-client artifacts were found without a canonical "
+            "playbook. Ask whether they are authoritative continuation evidence before creating a new path."
         )
 
     output = json.dumps(report, indent=2, sort_keys=True) + "\n"

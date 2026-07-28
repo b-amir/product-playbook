@@ -14,7 +14,12 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 
 
-def run_script(name: str, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+def run_script(
+    name: str,
+    *args: str,
+    check: bool = True,
+    cwd: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
     environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
     result = subprocess.run(
         [sys.executable, str(SCRIPTS / name), *args],
@@ -22,6 +27,7 @@ def run_script(name: str, *args: str, check: bool = True) -> subprocess.Complete
         capture_output=True,
         text=True,
         env=environment,
+        cwd=cwd,
     )
     if check and result.returncode != 0:
         raise AssertionError(result.stderr or result.stdout)
@@ -200,8 +206,6 @@ class DiscoveryTests(unittest.TestCase):
                     "discover_product.py",
                     "--source",
                     f"product={root}",
-                    "--output-dir",
-                    str(root / "playbook-output"),
                 ).stdout
             )
             self.assertEqual(
@@ -245,11 +249,11 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(repository["source_id"], "product")
             self.assertEqual(
                 set(repository["surfaces"]),
-                {"api", "cli", "mobile", "service"},
+                {"api", "cli", "mobile", "service", "worker"},
             )
             self.assertEqual(
                 set(report["components"][0]["surfaces"]),
-                {"api", "cli", "mobile", "service"},
+                {"api", "cli", "mobile", "service", "worker"},
             )
 
     def test_unknown_toolchain_still_finds_tests_and_commands(self) -> None:
@@ -323,6 +327,268 @@ class DiscoveryTests(unittest.TestCase):
             self.assertTrue(source["cleanup_required"])
             self.assertTrue((Path(source["root"]) / "Makefile").is_file())
             self.assertTrue(report["ask_before_write"])
+
+    def test_bootstrap_without_arguments_inspects_cwd_and_requires_confirmation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write(root / "Makefile", "test:\n\tpython -m unittest\n")
+            report = json.loads(
+                run_script(
+                    "bootstrap_playbook.py",
+                    cwd=root,
+                ).stdout
+            )
+            self.assertTrue(
+                report["intake"]["defaulted_source_to_current_directory"]
+            )
+            self.assertTrue(report["intake"]["requires_user_confirmation"])
+            self.assertFalse(report["bootstrap"]["ready"])
+            self.assertEqual(
+                report["bootstrap"]["next_action"],
+                "present_findings_and_confirm",
+            )
+            self.assertEqual(
+                Path(report["sources"][0]["root"]),
+                root.resolve(),
+            )
+            question_ids = {
+                question["id"] for question in report["intake"]["questions"]
+            }
+            self.assertIn("confirm_source_addresses", question_ids)
+            self.assertIn("confirm_source_roles", question_ids)
+            self.assertIn("choose_action", question_ids)
+
+            explicit = json.loads(
+                run_script(
+                    "bootstrap_playbook.py",
+                    "--intent",
+                    "create",
+                    cwd=root,
+                ).stdout
+            )
+            self.assertFalse(explicit["intake"]["requires_user_confirmation"])
+            self.assertTrue(explicit["bootstrap"]["ready"])
+            self.assertEqual(
+                explicit["bootstrap"]["next_action"],
+                "analyze_then_create",
+            )
+
+    def test_git_remote_addresses_are_reported_without_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "remote",
+                    "add",
+                    "origin",
+                    "https://user:secret@example.com/org/repo.git?token=secret",
+                ],
+                check=True,
+                capture_output=True,
+            )
+            write(root / "README.md", "# Product\n")
+            report = json.loads(
+                run_script(
+                    "discover_product.py",
+                    "--source",
+                    f"product={root}",
+                ).stdout
+            )
+            identity = report["repositories"][0]["repository_identity"]
+            self.assertEqual(identity["git_root"], str(root.resolve()))
+            self.assertEqual(
+                identity["remotes"][0]["fetch_url"],
+                "https://example.com/org/repo.git",
+            )
+            self.assertNotIn("secret", json.dumps(report))
+
+    def test_nested_repository_is_reported_with_an_assumed_role(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            nested = root / "product-docs"
+            subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
+            subprocess.run(["git", "init", str(nested)], check=True, capture_output=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(nested),
+                    "remote",
+                    "add",
+                    "origin",
+                    "https://example.test/product/docs.git",
+                ],
+                check=True,
+                capture_output=True,
+            )
+            write(root / "README.md", "# Wrapper\n")
+            write(nested / "README.md", "# Documentation\n")
+            make_playbook(nested / "docs" / "playbook")
+            report = json.loads(
+                run_script(
+                    "discover_product.py",
+                    "--source",
+                    f"product={root}",
+                ).stdout
+            )
+            candidates = report["repositories"][0][
+                "linked_repository_candidates"
+            ]
+            self.assertEqual(len(candidates), 1)
+            self.assertEqual(candidates[0]["path"], "product-docs")
+            self.assertIn("docs", candidates[0]["assumed_roles"])
+            self.assertEqual(
+                candidates[0]["remotes"][0]["fetch_url"],
+                "https://example.test/product/docs.git",
+            )
+            self.assertEqual(len(candidates[0]["playbook_candidates"]), 1)
+            self.assertEqual(report["output_decision"], "confirm_linked_draft")
+            self.assertTrue(report["ask_before_write"])
+            self.assertEqual(
+                report["continuation_suggestion"],
+                "confirm_and_continue_linked_playbook",
+            )
+
+    def test_contract_addresses_docs_and_prior_work_are_discovered(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write(
+                root / "package.json",
+                """
+                {
+                  "dependencies": {
+                    "react": "19"
+                  }
+                }
+                """,
+            )
+            write(
+                root / "cache" / "openapi.json",
+                """
+                {
+                  "openapi": "3.1.0",
+                  "info": {"title": "Fixture API", "version": "2"},
+                  "servers": [{"url": "https://api.example.test/v2?token=hidden"}],
+                  "paths": {
+                    "/accounts": {
+                      "get": {
+                        "tags": ["accounts"],
+                        "responses": {"200": {"description": "ok"}}
+                      }
+                    }
+                  }
+                }
+                """,
+            )
+            write(
+                root / "README.md",
+                """
+                # Web
+
+                Development API: http://localhost:4010
+                Configure `VITE_API_BASE_URL`.
+                """,
+            )
+            write(
+                root / "API Scenarios" / "README.md",
+                "# API scenario catalog\n",
+            )
+            playbook = root / "docs" / "playbook"
+            make_playbook(playbook)
+            write(
+                playbook / ".product-playbook-state.json",
+                """
+                {
+                  "managed_by": "product-playbook",
+                  "schema_version": 3,
+                  "sources": {"web": {}},
+                  "scenarios": {"ACC-01": {}}
+                }
+                """,
+            )
+            report = json.loads(
+                run_script(
+                    "discover_product.py",
+                    "--source",
+                    f"web={root}",
+                ).stdout
+            )
+            repository = report["repositories"][0]
+            contract = repository["contract_evidence"][0]
+            self.assertEqual(contract["path"], "cache/openapi.json")
+            self.assertEqual(contract["role"], "cached-or-generated")
+            self.assertEqual(
+                contract["repository_context"],
+                "frontend-contract-copy-or-codegen-input",
+            )
+            self.assertEqual(contract["summary"]["path_count"], 1)
+            addresses = {
+                item["value"] for item in repository["address_candidates"]
+            }
+            self.assertIn("http://localhost:4010", addresses)
+            self.assertIn("https://api.example.test/v2", addresses)
+            self.assertIn("VITE_API_BASE_URL", addresses)
+            docs = {
+                item["path"] for item in repository["documentation_candidates"]
+            }
+            self.assertIn("API Scenarios/README.md", docs)
+            self.assertEqual(
+                report["existing_playbook_candidates"][0]["state"]["managed_by"],
+                "product-playbook",
+            )
+            self.assertEqual(
+                report["continuation_suggestion"],
+                "continue_unique_playbook",
+            )
+            self.assertNotIn("hidden", json.dumps(report))
+
+    def test_rag_and_helper_packages_are_kept_as_distinct_surfaces(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write(
+                root / "services" / "rag" / "pyproject.toml",
+                """
+                [project]
+                dependencies = ["langchain", "qdrant-client"]
+                """,
+            )
+            write(
+                root / "services" / "rag" / "app" / "retrieval.py",
+                "def retrieve_context(query):\n    return vector_store.search(query)\n",
+            )
+            write(
+                root / "packages" / "helpers" / "package.json",
+                """
+                {
+                  "name": "helpers",
+                  "exports": {".": "./index.js"},
+                  "types": "./index.d.ts"
+                }
+                """,
+            )
+            write(
+                root / "packages" / "helpers" / "index.js",
+                "export const normalize = value => value\n",
+            )
+            report = json.loads(
+                run_script(
+                    "discover_product.py",
+                    "--source",
+                    f"product={root}",
+                    "--output-dir",
+                    str(root / "playbook-output"),
+                ).stdout
+            )
+            components = {
+                component["path"]: set(component["surfaces"])
+                for component in report["components"]
+            }
+            self.assertIn("rag", components["services/rag"])
+            self.assertIn("library", components["packages/helpers"])
 
 
 class StateAndValidationTests(unittest.TestCase):

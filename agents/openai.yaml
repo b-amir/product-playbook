@@ -1,4 +1,4 @@
 interface:
   display_name: "Product Playbook"
-  short_description: "Create and reconcile tester-facing playbooks"
-  default_prompt: "Use $product-playbook with one or more local paths or repository URLs to create or reconcile a portable tester-facing playbook."
+  short_description: "Inspect and reconcile tester-facing playbooks"
+  default_prompt: "Use $product-playbook to inspect this workspace, summarize repositories and prior evidence, and ask me to confirm assumptions before editing."
