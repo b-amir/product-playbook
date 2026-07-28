@@ -1,6 +1,6 @@
 # Product Playbook
 
-[![skills.sh](https://skills.sh/b/YOUR_GITHUB_USERNAME/product-playbook)](https://skills.sh/YOUR_GITHUB_USERNAME/product-playbook)
+[![skills.sh](https://skills.sh/b/b-amir/product-playbook)](https://skills.sh/b-amir/product-playbook)
 
 An [Agent Skill](https://agentskills.io/) that turns automated tests, contracts, source code, and docs into **tester-facing manual playbooks**. QA, product owners, support, and operators get step-by-step scenarios they can run through the product UI or supported interface. Evidence ledgers and verification status stay in agent chat or `.product-playbook-state.json`, not in the published Markdown.
 
@@ -33,22 +33,14 @@ After install, invoke the skill when you need manual test documentation or playb
 
 ## Installation
 
-Replace `YOUR_GITHUB_USERNAME` with your GitHub owner name after you publish the repo:
-
 ```bash
-npx skills add YOUR_GITHUB_USERNAME/product-playbook
-```
-
-Install a single skill from a multi-skill catalog repo:
-
-```bash
-npx skills add owner/repo --skill product-playbook
+npx skills add b-amir/product-playbook
 ```
 
 List available skills before installing:
 
 ```bash
-npx skills add YOUR_GITHUB_USERNAME/product-playbook --list
+npx skills add b-amir/product-playbook --list
 ```
 
 ## Usage
@@ -131,23 +123,11 @@ product-playbook/
     └── openai.yaml       # Optional Codex interface hints
 ```
 
-## Examples on skills.sh
-
-Use these repos as structural templates:
-
-| Repo | Why it is a good template |
-| ---- | ------------------------- |
-| [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills) | Multi-skill catalog, skills.sh badge, clear README sections |
-| [anthropics/skills](https://github.com/anthropics/skills) | Large catalog, Agent Skills spec alignment, install docs |
-| [vercel-labs/skills](https://github.com/vercel-labs/skills) | The CLI that powers skills.sh, skill discovery rules |
-
-This skill uses the **single-skill repo layout** (`SKILL.md` at the repository root). That is the simplest layout for `npx skills add owner/product-playbook`.
-
 ## Reporting problems
 
 Open an issue on GitHub:
 
-**https://github.com/YOUR_GITHUB_USERNAME/product-playbook/issues**
+**https://github.com/b-amir/product-playbook/issues**
 
 Include:
 
