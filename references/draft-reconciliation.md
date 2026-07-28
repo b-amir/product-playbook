@@ -39,7 +39,7 @@ Do not treat draft prose as proof of current behavior.
 
 ## First reconciliation
 
-When no `.product-playbook/manifest.json` exists:
+When no `.product-playbook-state.json` exists:
 
 1. Run `inventory_playbook.py --check-state` with stable source IDs.
 2. Preserve the draft until the audit is complete.
@@ -55,7 +55,7 @@ A first reconciliation can reuse prose, but it cannot skip factual auditing.
 
 Use incremental reuse only when:
 
-- The portable state directory exists and its schema is supported
+- The portable state file exists and its schema is supported
 - The draft scenario set still matches the state
 - Relevant source fingerprints are unchanged for reused scenarios
 
@@ -111,7 +111,7 @@ Do not save tokens by:
 - Make a focused patch rather than rewriting the directory when reconciliation is safe.
 - Preserve unrelated user edits.
 - Do not delete superseded scenarios until the chat report explains the replacement.
-- Write `.product-playbook/` only after the playbook validates.
+- Write `.product-playbook-state.json` only after the playbook validates.
 - Never store credentials, access links, customer data, or absolute user-specific paths in state.
 - Keep the published Markdown tester-facing. Put authoring uncertainty only in chat or state.
 - During a contribution, preserve inaccessible scenarios and reject unsupported edits.

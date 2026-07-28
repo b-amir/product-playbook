@@ -14,16 +14,12 @@
 Keep authoring state beside the canonical playbook:
 
 ```text
-.product-playbook/
-├── manifest.json
-├── sources/
-│   └── <source-id>.json
-└── scenarios/
-    └── <scenario-id>.json
+.product-playbook-state.json
 ```
 
-Keep this directory out of the tester-facing playbook map. It may be versioned with the canonical
-playbook so another contributor can safely continue the work.
+Keep this file out of the tester-facing playbook map. It may be versioned with the canonical
+playbook so another contributor can safely continue the work. Never split it into per-source or
+per-scenario files.
 
 ## Stable source identity
 
@@ -80,15 +76,23 @@ work without editing or downgrading them.
 
 ## Concurrent work
 
-Read the manifest `state_digest` before editing. Pass it back as `--base-state-digest` when writing
-state. If it changed, reload the current canonical draft and reapply the focused contribution.
+Read `state_digest` from `.product-playbook-state.json` before editing. Pass it back as
+`--base-state-digest` when writing state. If it changed, reload the current canonical draft and
+reapply the focused contribution.
 
 Use ordinary version-control branches and review workflows when teams work simultaneously. The
 skill prepares focused files and detects stale state. It does not silently merge divergent drafts,
 commit, push, or publish changes without explicit user authorization.
 
-Per-source and per-scenario state files reduce unrelated merge conflicts. Resolve a genuine
-same-scenario conflict using current evidence from every involved source.
+The digest covers the full state document, including every source and scenario entry. Resolve a
+genuine same-scenario conflict using current evidence from every involved source.
+
+## Legacy migration
+
+Run `inventory_playbook.py "<output_dir>" --migrate-state` when an older playbook contains
+`.product-playbook/`. Migration consolidates the legacy manifest, source entries, and scenario
+entries into `.product-playbook-state.json`. It removes only recognized legacy JSON files and
+refuses cleanup when the directory contains anything else.
 
 ## Safety rules
 

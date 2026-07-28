@@ -15,9 +15,12 @@ from typing import Any
 from source_utils import SourceSpec, ensure_unique_sources, legacy_specs, parse_source_spec
 
 
-STATE_DIR_NAME = ".product-playbook"
-MANIFEST_NAME = "manifest.json"
-STATE_VERSION = 2
+STATE_FILE_NAME = ".product-playbook-state.json"
+LEGACY_STATE_DIR_NAME = ".product-playbook"
+LEGACY_MANIFEST_NAME = "manifest.json"
+STATE_VERSION = 3
+LEGACY_STATE_VERSION = 2
+LEGACY_MONOLITHIC_STATE_VERSION = 1
 SKIP_DIRS = {
     ".git",
     ".next",
@@ -159,12 +162,20 @@ def parse_args() -> argparse.Namespace:
     mode.add_argument(
         "--write-state",
         action="store_true",
-        help=f"Write portable state under {STATE_DIR_NAME} after validation.",
+        help=f"Write portable state to {STATE_FILE_NAME} after validation.",
     )
     mode.add_argument(
         "--check-state",
         action="store_true",
         help="Compare the current sources with the saved state.",
+    )
+    mode.add_argument(
+        "--migrate-state",
+        action="store_true",
+        help=(
+            f"Consolidate legacy {LEGACY_STATE_DIR_NAME}/ state into "
+            f"{STATE_FILE_NAME} and remove the recognized legacy files."
+        ),
     )
     parser.add_argument("--output", help="Write JSON report to this file")
     return parser.parse_args()
@@ -372,14 +383,46 @@ def read_json(path: Path) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def state_paths(draft: Path) -> tuple[Path, Path, Path]:
-    state_dir = draft / STATE_DIR_NAME
+def legacy_state_paths(draft: Path) -> tuple[Path, Path, Path]:
+    state_dir = draft / LEGACY_STATE_DIR_NAME
     return state_dir, state_dir / "sources", state_dir / "scenarios"
 
 
-def load_structured_state(draft: Path) -> dict[str, Any]:
-    state_dir, sources_dir, scenarios_dir = state_paths(draft)
-    manifest = read_json(state_dir / MANIFEST_NAME)
+def empty_state() -> dict[str, Any]:
+    return {
+        "manifest": {},
+        "sources": {},
+        "scenarios": {},
+        "format": None,
+    }
+
+
+def load_unified_state(draft: Path) -> dict[str, Any]:
+    value = read_json(draft / STATE_FILE_NAME)
+    if not value:
+        return empty_state()
+    sources = value.get("sources")
+    scenarios = value.get("scenarios")
+    if not isinstance(sources, dict) or not isinstance(scenarios, dict):
+        return empty_state()
+    manifest = {
+        key: item
+        for key, item in value.items()
+        if key not in {"sources", "scenarios"}
+    }
+    return {
+        "manifest": manifest,
+        "sources": sources,
+        "scenarios": scenarios,
+        "format": "unified",
+    }
+
+
+def load_legacy_state(draft: Path) -> dict[str, Any]:
+    state_dir, sources_dir, scenarios_dir = legacy_state_paths(draft)
+    manifest = read_json(state_dir / LEGACY_MANIFEST_NAME)
+    if not manifest:
+        return empty_state()
     sources = {
         path.stem: read_json(path)
         for path in sorted(sources_dir.glob("*.json"))
@@ -390,7 +433,123 @@ def load_structured_state(draft: Path) -> dict[str, Any]:
         for path in sorted(scenarios_dir.glob("*.json"))
         if path.is_file()
     }
-    return {"manifest": manifest, "sources": sources, "scenarios": scenarios}
+    return {
+        "manifest": manifest,
+        "sources": sources,
+        "scenarios": scenarios,
+        "format": "legacy",
+    }
+
+
+def load_structured_state(draft: Path) -> dict[str, Any]:
+    unified = load_unified_state(draft)
+    return unified if unified["manifest"] else load_legacy_state(draft)
+
+
+def build_unified_state(
+    draft_inventory: dict[str, Any],
+    run_scope: str,
+    source_state: dict[str, Any],
+    scenario_state: dict[str, Any],
+) -> dict[str, Any]:
+    core = {
+        "schema_version": STATE_VERSION,
+        "draft_digest": draft_inventory["draft_digest"],
+        "run_scope": run_scope,
+        "source_ids": sorted(source_state),
+        "scenario_ids": sorted(scenario_state),
+        "sources": source_state,
+        "scenarios": scenario_state,
+    }
+    state_digest = hash_text(
+        json.dumps(core, sort_keys=True, separators=(",", ":"))
+    )
+    return {**core, "state_digest": state_digest}
+
+
+def validate_legacy_layout(draft: Path) -> list[Path]:
+    state_dir, sources_dir, scenarios_dir = legacy_state_paths(draft)
+    if not state_dir.exists():
+        return []
+    if state_dir.is_symlink() or not state_dir.is_dir():
+        raise ValueError(f"legacy state path is not a directory: {state_dir}")
+    allowed_directories = {sources_dir, scenarios_dir}
+    owned_files: list[Path] = []
+    for path in state_dir.rglob("*"):
+        if path.is_symlink():
+            raise ValueError(f"legacy state contains a symbolic link: {path.name}")
+        if path.is_dir():
+            if path not in allowed_directories:
+                raise ValueError(
+                    "legacy state contains an unexpected directory; refusing cleanup: "
+                    + path.relative_to(state_dir).as_posix()
+                )
+            continue
+        relative = path.relative_to(state_dir)
+        is_manifest = relative == Path(LEGACY_MANIFEST_NAME)
+        is_owned_entry = (
+            len(relative.parts) == 2
+            and relative.parts[0] in {"sources", "scenarios"}
+            and path.suffix == ".json"
+        )
+        if not (is_manifest or is_owned_entry):
+            raise ValueError(
+                "legacy state contains an unexpected file; refusing cleanup: "
+                + relative.as_posix()
+            )
+        owned_files.append(path)
+    return owned_files
+
+
+def cleanup_legacy_state(draft: Path) -> None:
+    state_dir, sources_dir, scenarios_dir = legacy_state_paths(draft)
+    owned_files = validate_legacy_layout(draft)
+    for path in owned_files:
+        path.unlink()
+    for directory in (sources_dir, scenarios_dir):
+        if directory.exists():
+            directory.rmdir()
+    if state_dir.exists():
+        state_dir.rmdir()
+
+
+def migrate_legacy_state(draft: Path) -> dict[str, Any]:
+    legacy = load_legacy_state(draft)
+    manifest = legacy["manifest"]
+    if manifest.get("schema_version") != LEGACY_STATE_VERSION:
+        raise ValueError("legacy collaboration state is missing or unsupported")
+    existing_path = draft / STATE_FILE_NAME
+    if existing_path.exists():
+        existing = read_json(existing_path)
+        allowed_keys = {
+            "schema_version",
+            "generated_at",
+            "draft_digest",
+            "roots",
+            "scenarios",
+        }
+        existing_scenarios = existing.get("scenarios")
+        if (
+            existing.get("schema_version") != LEGACY_MONOLITHIC_STATE_VERSION
+            or not isinstance(existing_scenarios, dict)
+            or not set(existing) <= allowed_keys
+            or set(existing_scenarios) != set(legacy["scenarios"])
+        ):
+            raise ValueError(
+                f"{STATE_FILE_NAME} already exists and is not a matching legacy "
+                "schema-1 state file; refusing to overwrite it"
+            )
+    validate_legacy_layout(draft)
+    draft_inventory = inventory(draft)
+    unified = build_unified_state(
+        draft_inventory,
+        str(manifest.get("run_scope", "full")),
+        legacy["sources"],
+        legacy["scenarios"],
+    )
+    write_json(draft / STATE_FILE_NAME, unified)
+    cleanup_legacy_state(draft)
+    return unified
 
 
 def load_evidence_ledger(path: str | None) -> dict[str, Any]:
@@ -471,7 +630,10 @@ def structured_compare(
     manifest = state["manifest"]
     previous_scenarios = state["scenarios"]
     draft = Path(draft_inventory["draft_path"]).resolve()
-    if manifest.get("schema_version") != STATE_VERSION:
+    if manifest.get("schema_version") not in {
+        STATE_VERSION,
+        LEGACY_STATE_VERSION,
+    }:
         return {
             "full_audit_required": True,
             "coverage_scan_required": True,
@@ -668,10 +830,6 @@ def write_structured_state(
                 "body_hash": current["body_hash"],
             }
 
-    state_dir, sources_dir, scenarios_dir = state_paths(draft)
-    sources_dir.mkdir(parents=True, exist_ok=True)
-    scenarios_dir.mkdir(parents=True, exist_ok=True)
-
     previous_sources = existing["sources"]
     source_state = (
         {
@@ -708,30 +866,20 @@ def write_structured_state(
             ),
         }
 
-    if run_scope == "full":
-        for path in sources_dir.glob("*.json"):
-            if path.stem not in source_state:
-                path.unlink()
-        for path in scenarios_dir.glob("*.json"):
-            if path.stem not in scenario_state:
-                path.unlink()
+    legacy_dir = draft / LEGACY_STATE_DIR_NAME
+    if legacy_dir.exists():
+        validate_legacy_layout(draft)
 
-    for source_id, value in source_state.items():
-        write_json(sources_dir / f"{source_id}.json", value)
-    for scenario_id, value in scenario_state.items():
-        write_json(scenarios_dir / f"{scenario_id}.json", value)
-
-    core_manifest = {
-        "schema_version": STATE_VERSION,
-        "draft_digest": draft_inventory["draft_digest"],
-        "run_scope": run_scope,
-        "source_ids": sorted(source_state),
-        "scenario_ids": sorted(scenario_state),
-    }
-    state_digest = hash_text(json.dumps(core_manifest, sort_keys=True))
-    manifest = {**core_manifest, "state_digest": state_digest}
-    write_json(state_dir / MANIFEST_NAME, manifest)
-    return manifest
+    state = build_unified_state(
+        draft_inventory,
+        run_scope,
+        source_state,
+        scenario_state,
+    )
+    write_json(draft / STATE_FILE_NAME, state)
+    if legacy_dir.exists():
+        cleanup_legacy_state(draft)
+    return state
 
 
 def main() -> int:
@@ -745,10 +893,11 @@ def main() -> int:
         raise SystemExit(str(error)) from error
     roots_by_id = source_roots(specs)
     report = inventory(draft)
-    state_dir, _, _ = state_paths(draft)
     state = load_structured_state(draft)
-    report["state_path"] = str(state_dir)
+    report["state_path"] = str(draft / STATE_FILE_NAME)
     report["state_found"] = bool(state["manifest"])
+    report["state_format"] = state["format"]
+    report["legacy_state_found"] = (draft / LEGACY_STATE_DIR_NAME).is_dir()
     report["state_schema_version"] = state["manifest"].get("schema_version")
     report["state_digest"] = state["manifest"].get("state_digest")
     report["accessible_sources"] = sorted(roots_by_id)
@@ -757,12 +906,25 @@ def main() -> int:
     if args.check_state:
         report["incremental"] = structured_compare(report, state, roots_by_id)
 
+    if args.migrate_state:
+        try:
+            migrated = migrate_legacy_state(draft)
+        except ValueError as error:
+            raise SystemExit(str(error)) from error
+        report["state_found"] = True
+        report["state_written"] = True
+        report["state_migrated"] = True
+        report["state_format"] = "unified"
+        report["legacy_state_found"] = False
+        report["state_schema_version"] = migrated["schema_version"]
+        report["state_digest"] = migrated["state_digest"]
+
     if args.write_state:
         if args.run_scope == "audit":
             raise SystemExit("--write-state cannot be used with --run-scope audit")
         try:
             ledger = load_evidence_ledger(args.evidence_ledger)
-            manifest = write_structured_state(
+            state_value = write_structured_state(
                 draft,
                 report,
                 specs,
@@ -775,7 +937,10 @@ def main() -> int:
             raise SystemExit(str(error)) from error
         report["state_found"] = True
         report["state_written"] = True
-        report["state_digest"] = manifest["state_digest"]
+        report["state_format"] = "unified"
+        report["legacy_state_found"] = False
+        report["state_schema_version"] = state_value["schema_version"]
+        report["state_digest"] = state_value["state_digest"]
 
     output = json.dumps(report, indent=2, sort_keys=True) + "\n"
     if args.output:

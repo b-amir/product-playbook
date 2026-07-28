@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from collections import Counter
@@ -146,6 +147,9 @@ RESULTS_SECTIONS = {
     "summary": r"^## .*summary",
     "sign-off": r"^## .*sign.?off",
 }
+STATE_FILE_NAME = ".product-playbook-state.json"
+LEGACY_STATE_DIR_NAME = ".product-playbook"
+STATE_VERSION = 3
 
 
 def parse_args() -> argparse.Namespace:
@@ -429,73 +433,98 @@ def validate_state(
     scenario_ids: set[str],
     errors: list[dict[str, str]],
 ) -> None:
-    state_dir = root / ".product-playbook"
-    manifest_path = state_dir / "manifest.json"
-    scenarios_dir = state_dir / "scenarios"
-    if not manifest_path.is_file():
-        issue(errors, "missing-state", "Missing .product-playbook/manifest.json")
+    state_path = root / STATE_FILE_NAME
+    if not state_path.is_file():
+        issue(errors, "missing-state", f"Missing {STATE_FILE_NAME}")
         return
     try:
-        manifest = json.loads(read(manifest_path))
+        state = json.loads(read(state_path))
     except json.JSONDecodeError:
-        issue(errors, "invalid-state", "State manifest is not valid JSON", manifest_path)
+        issue(errors, "invalid-state", "Collaboration state is not valid JSON", state_path)
         return
-    if manifest.get("schema_version") != 2:
-        issue(errors, "invalid-state", "Unsupported state schema version", manifest_path)
-    state_ids = set(manifest.get("scenario_ids", []))
+    if not isinstance(state, dict):
+        issue(errors, "invalid-state", "Collaboration state must be a JSON object", state_path)
+        return
+    if state.get("schema_version") != STATE_VERSION:
+        issue(errors, "invalid-state", "Unsupported state schema version", state_path)
+    scenarios = state.get("scenarios")
+    sources = state.get("sources")
+    if not isinstance(scenarios, dict) or not isinstance(sources, dict):
+        issue(
+            errors,
+            "invalid-state",
+            "Collaboration state must contain sources and scenarios objects",
+            state_path,
+        )
+        return
+    state_ids = set(state.get("scenario_ids", []))
     if state_ids != scenario_ids:
         issue(
             errors,
             "state-scenario-mismatch",
             "State scenario IDs do not match the published playbook",
-            manifest_path,
+            state_path,
         )
-    source_ids = set(manifest.get("source_ids", []))
-    actual_source_ids = {
-        path.stem
-        for path in (state_dir / "sources").glob("*.json")
-        if path.is_file()
-    }
+    if state_ids != set(scenarios):
+        issue(
+            errors,
+            "state-scenario-mismatch",
+            "State scenario entries do not match the scenario ID list",
+            state_path,
+        )
+    source_ids = set(state.get("source_ids", []))
+    actual_source_ids = set(sources)
     if source_ids != actual_source_ids:
         issue(
             errors,
             "state-source-mismatch",
-            "State source files do not match the manifest",
-            manifest_path,
+            "State source entries do not match the source ID list",
+            state_path,
         )
     for scenario_id in sorted(scenario_ids):
-        path = scenarios_dir / f"{scenario_id}.json"
-        if not path.is_file():
+        scenario_state = scenarios.get(scenario_id)
+        if not isinstance(scenario_state, dict):
             issue(errors, "missing-state-scenario", f"Missing state for {scenario_id}")
             continue
-        try:
-            state = json.loads(read(path))
-        except json.JSONDecodeError:
-            issue(errors, "invalid-state", f"State for {scenario_id} is not valid JSON", path)
-            continue
-        if not state.get("sources"):
-            issue(errors, "missing-state-sources", f"State for {scenario_id} has no evidence", path)
-    for path in state_dir.rglob("*.json"):
-        try:
-            value = json.loads(read(path))
-        except json.JSONDecodeError:
-            continue
-        if any(is_absolute_or_private_path(item) for item in walk_strings(value)):
+        if not scenario_state.get("sources"):
             issue(
                 errors,
-                "nonportable-state",
-                "Collaboration state contains a machine-specific path",
-                path,
+                "missing-state-sources",
+                f"State for {scenario_id} has no evidence",
+                state_path,
             )
-        leaked_keys = sorted(walk_keys(value) & FORBIDDEN_STATE_KEYS)
-        if leaked_keys:
-            issue(
-                errors,
-                "authoring-meta-in-state",
-                "Collaboration state contains authoring metadata: "
-                + ", ".join(leaked_keys),
-                path,
-            )
+    expected_digest = state.get("state_digest")
+    digest_input = {key: value for key, value in state.items() if key != "state_digest"}
+    actual_digest = hashlib.sha256(
+        json.dumps(
+            digest_input,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    if expected_digest != actual_digest:
+        issue(
+            errors,
+            "state-digest-mismatch",
+            "Collaboration state digest does not match its contents",
+            state_path,
+        )
+    if any(is_absolute_or_private_path(item) for item in walk_strings(state)):
+        issue(
+            errors,
+            "nonportable-state",
+            "Collaboration state contains a machine-specific path",
+            state_path,
+        )
+    leaked_keys = sorted(walk_keys(state) & FORBIDDEN_STATE_KEYS)
+    if leaked_keys:
+        issue(
+            errors,
+            "authoring-meta-in-state",
+            "Collaboration state contains authoring metadata: "
+            + ", ".join(leaked_keys),
+            state_path,
+        )
 
 
 def main() -> int:
@@ -600,6 +629,17 @@ def main() -> int:
 
     markdown_files = [path for path in root.rglob("*.md") if path.is_file()]
     check_links(root, markdown_files, errors)
+    legacy_state_dir = root / LEGACY_STATE_DIR_NAME
+    if legacy_state_dir.exists():
+        issue(
+            errors,
+            "legacy-state-directory",
+            (
+                f"Legacy {LEGACY_STATE_DIR_NAME}/ state is not allowed; "
+                f"migrate it to {STATE_FILE_NAME}"
+            ),
+            legacy_state_dir,
+        )
     if args.require_state:
         validate_state(root, set(all_ids), errors)
 

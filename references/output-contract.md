@@ -24,10 +24,7 @@ Create:
 ├── 02-<journey>.md
 ├── NN-quality-sweep.md
 ├── results-template.md
-└── .product-playbook/
-    ├── manifest.json
-    ├── sources/
-    └── scenarios/
+└── .product-playbook-state.json
 ```
 
 Add or omit journey chapters according to evidence. Number chapters in the order a user encounters
@@ -47,13 +44,13 @@ Keep all authoring issues, missing evidence, conflicts, verification needs, deci
 source provenance, and change explanations in the current agent chat. Use a temporary evidence
 ledger while working, then discard it after portable fingerprints are written.
 
-The `.product-playbook/` directory is machine-facing collaboration state, not documentation. It may
-contain only current source-relative fingerprints and scenario body hashes. It must not contain
+The `.product-playbook-state.json` file is machine-facing collaboration state, not documentation.
+It may contain only current source-relative fingerprints and scenario body hashes. It must not contain
 verification status, authoring timestamps, issues, notes, decisions, or history.
 
 When distributing the playbook to testers, distribute only `README.md`, numbered journey chapters,
-quality-sweep chapters, and `results-template.md`. Do not include `.product-playbook/` in the
-tester-facing bundle.
+quality-sweep chapters, and `results-template.md`. Do not include
+`.product-playbook-state.json` in the tester-facing bundle.
 
 
 ## Hub requirements
@@ -212,9 +209,12 @@ optional subchecks to be recorded as N/A or Blocked in Notes without hiding a re
 
 ## Reconciliation state
 
-Write `.product-playbook/` after successful validation by running
+Write `.product-playbook-state.json` after successful validation by running
 `inventory_playbook.py --write-state` with an evidence ledger. Keep it machine-readable and free of
 secrets or absolute user-specific paths.
+
+Never create a state directory or separate source and scenario files. Consolidate legacy
+`.product-playbook/` state with `inventory_playbook.py --migrate-state`.
 
 Use the state only to narrow future fact-checking. Never present it as product behavior, never list
 it in the playbook map, and never ask testers to open it.

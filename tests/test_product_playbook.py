@@ -415,19 +415,25 @@ class StateAndValidationTests(unittest.TestCase):
                 ).stdout
             )
             self.assertTrue(state_report["state_written"])
-            scenario_state = json.loads(
-                (playbook / ".product-playbook" / "scenarios" / "ACC-01.json").read_text()
-            )
+            state_path = playbook / ".product-playbook-state.json"
+            portable_state = json.loads(state_path.read_text(encoding="utf-8"))
+            scenario_state = portable_state["scenarios"]["ACC-01"]
             self.assertEqual(
                 scenario_state["sources"][0]["path"],
                 "tests/accounts_test.py",
             )
             self.assertNotIn(str(source), json.dumps(scenario_state))
             self.assertNotIn("status", scenario_state)
-            manifest_state = json.loads(
-                (playbook / ".product-playbook" / "manifest.json").read_text()
+            self.assertNotIn("generated_at", portable_state)
+            self.assertFalse((playbook / ".product-playbook").exists())
+            self.assertEqual(
+                [
+                    path.name
+                    for path in playbook.iterdir()
+                    if path.is_file() and path.suffix != ".md"
+                ],
+                [".product-playbook-state.json"],
             )
-            self.assertNotIn("generated_at", manifest_state)
 
             validation = json.loads(
                 run_script(
@@ -483,8 +489,8 @@ class StateAndValidationTests(unittest.TestCase):
                 "--write-state",
             )
             contributed_state = json.loads(
-                (playbook / ".product-playbook" / "scenarios" / "ACC-01.json").read_text()
-            )
+                state_path.read_text(encoding="utf-8")
+            )["scenarios"]["ACC-01"]
             self.assertEqual(
                 {item["source_id"] for item in contributed_state["sources"]},
                 {"api", "web"},
@@ -508,11 +514,8 @@ class StateAndValidationTests(unittest.TestCase):
             self.assertNotEqual(stale.returncode, 0)
             self.assertIn("state changed after analysis", stale.stderr)
 
-            state_path = (
-                playbook / ".product-playbook" / "scenarios" / "ACC-01.json"
-            )
             leaked_state = json.loads(state_path.read_text(encoding="utf-8"))
-            leaked_state["status"] = "SOURCED"
+            leaked_state["scenarios"]["ACC-01"]["status"] = "SOURCED"
             state_path.write_text(
                 json.dumps(leaked_state, indent=2) + "\n",
                 encoding="utf-8",
@@ -529,6 +532,137 @@ class StateAndValidationTests(unittest.TestCase):
                 for item in json.loads(leaked_validation.stdout)["errors"]
             }
             self.assertIn("authoring-meta-in-state", leaked_codes)
+
+    def test_legacy_state_migrates_to_one_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            playbook = Path(temporary)
+            make_playbook(playbook)
+            legacy = playbook / ".product-playbook"
+            write(
+                playbook / ".product-playbook-state.json",
+                """
+                {
+                  "schema_version": 1,
+                  "generated_at": "legacy timestamp",
+                  "draft_digest": "old-draft",
+                  "roots": {
+                    "code0": {
+                      "path": "/old/machine/path"
+                    }
+                  },
+                  "scenarios": {
+                    "ACC-01": {
+                      "title": "List accounts",
+                      "body_hash": "old-scenario-digest",
+                      "status": "SOURCED",
+                      "sources": []
+                    }
+                  }
+                }
+                """,
+            )
+            write(
+                legacy / "manifest.json",
+                """
+                {
+                  "schema_version": 2,
+                  "draft_digest": "legacy",
+                  "run_scope": "full",
+                  "source_ids": ["api"],
+                  "scenario_ids": ["ACC-01"],
+                  "state_digest": "legacy-digest"
+                }
+                """,
+            )
+            write(
+                legacy / "sources" / "api.json",
+                """
+                {
+                  "source_id": "api",
+                  "kind": "code",
+                  "revision": null,
+                  "dirty": false,
+                  "fingerprint": {
+                    "digest": "source-digest",
+                    "file_count": 1
+                  }
+                }
+                """,
+            )
+            write(
+                legacy / "scenarios" / "ACC-01.json",
+                """
+                {
+                  "title": "List accounts",
+                  "body_hash": "scenario-digest",
+                  "sources": [
+                    {
+                      "source_id": "api",
+                      "path": "tests/accounts_test.py",
+                      "sha256": "evidence-digest"
+                    }
+                  ]
+                }
+                """,
+            )
+
+            report = json.loads(
+                run_script(
+                    "inventory_playbook.py",
+                    str(playbook),
+                    "--migrate-state",
+                ).stdout
+            )
+            self.assertTrue(report["state_migrated"])
+            self.assertFalse(legacy.exists())
+            state_path = playbook / ".product-playbook-state.json"
+            self.assertTrue(state_path.is_file())
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(state["schema_version"], 3)
+            self.assertNotIn("generated_at", state)
+            self.assertNotIn("/old/machine/path", json.dumps(state))
+            self.assertEqual(
+                state["scenarios"]["ACC-01"]["sources"][0]["path"],
+                "tests/accounts_test.py",
+            )
+
+            validation = json.loads(
+                run_script(
+                    "validate_playbook.py",
+                    str(playbook),
+                    "--json",
+                    "--require-state",
+                ).stdout
+            )
+            self.assertTrue(validation["valid"])
+
+    def test_migration_refuses_unrecognized_legacy_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            playbook = Path(temporary)
+            make_playbook(playbook)
+            legacy = playbook / ".product-playbook"
+            write(
+                legacy / "manifest.json",
+                """
+                {
+                  "schema_version": 2,
+                  "source_ids": [],
+                  "scenario_ids": []
+                }
+                """,
+            )
+            write(legacy / "keep-me.txt", "not owned by the skill\n")
+
+            result = run_script(
+                "inventory_playbook.py",
+                str(playbook),
+                "--migrate-state",
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("unexpected file", result.stderr)
+            self.assertTrue((legacy / "keep-me.txt").is_file())
+            self.assertFalse((playbook / ".product-playbook-state.json").exists())
 
     def test_validator_rejects_checklist_and_punctuation_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

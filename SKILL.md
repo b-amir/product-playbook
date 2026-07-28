@@ -10,9 +10,10 @@ Treat source locations, product structure, team boundaries, and the output desti
 inputs. Never embed organization names, developer names, machine paths, repository names, or
 product-specific assumptions in this skill.
 
-Keep portable fingerprints under `<output_dir>/.product-playbook/`. Do not persist verification
-status, authoring timestamps, issues, history, or unresolved notes there. Never publish source maps
-or authoring metadata in tester-facing Markdown.
+Keep all portable fingerprints in the single file
+`<output_dir>/.product-playbook-state.json`. Never create a state directory or per-source and
+per-scenario files. Do not persist verification status, authoring timestamps, issues, history, or
+unresolved notes there. Never publish source maps or authoring metadata in tester-facing Markdown.
 
 ## Start from the available inputs
 
@@ -239,6 +240,15 @@ python3 <skill-dir>/scripts/inventory_playbook.py "<output_dir>" \
 
 Omit `--base-state-digest` only when no prior state exists. Use `--run-scope full` only when every
 published scenario has current ledger evidence.
+
+If an older playbook contains `.product-playbook/`, consolidate it before continuing:
+
+```bash
+python3 <skill-dir>/scripts/inventory_playbook.py "<output_dir>" --migrate-state
+```
+
+Migration accepts only the legacy manifest and its JSON source and scenario entries. It refuses to
+remove an unrecognized file.
 
 Then validate state and Markdown together:
 

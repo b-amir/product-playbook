@@ -80,15 +80,16 @@ docs/playbook/
 ├── 02-account.md
 ├── NN-quality-sweep.md
 ├── results-template.md
-└── .product-playbook/
-    ├── manifest.json
-    ├── sources/
-    │   └── api.json
-    └── scenarios/
-        └── ACC-01.json
+└── .product-playbook-state.json
 ```
 
-The Markdown is tester-facing. The hidden `.product-playbook/` directory holds portable source-relative fingerprints for later contributions. It contains no verification status, issues, authoring timestamps, decisions, or history. Publish only the Markdown files to testers.
+The Markdown is tester-facing. The single hidden state file contains portable source-relative fingerprints used to reconcile later contributions. It contains no verification status, issues, authoring timestamps, decisions, or history. Publish only the Markdown files to testers.
+
+To consolidate state created by versions that used `.product-playbook/`, run:
+
+```bash
+python3 scripts/inventory_playbook.py ./docs/playbook --migrate-state
+```
 
 ## Team contributions
 
