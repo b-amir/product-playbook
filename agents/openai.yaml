@@ -1,4 +1,4 @@
 interface:
   display_name: "Product Playbook"
-  short_description: "Create and reconcile tester-facing product playbooks"
-  default_prompt: "Use $product-playbook to create or reconcile a tester-facing playbook. Ask for output_dir when multiple repos or docs roots make the destination ambiguous. Keep authoring metadata out of the published Markdown."
+  short_description: "Create and reconcile tester-facing playbooks"
+  default_prompt: "Use $product-playbook with one or more local paths or repository URLs to create or reconcile a portable tester-facing playbook."

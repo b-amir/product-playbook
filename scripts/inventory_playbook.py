@@ -9,13 +9,15 @@ import json
 import os
 import re
 import subprocess
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from source_utils import SourceSpec, ensure_unique_sources, legacy_specs, parse_source_spec
 
-STATE_NAME = ".product-playbook-state.json"
-STATE_VERSION = 1
+
+STATE_DIR_NAME = ".product-playbook"
+MANIFEST_NAME = "manifest.json"
+STATE_VERSION = 2
 SKIP_DIRS = {
     ".git",
     ".next",
@@ -40,16 +42,21 @@ SKIP_DIRS = {
 }
 EVIDENCE_SUFFIXES = {
     ".adoc",
+    ".bats",
     ".cjs",
     ".cs",
     ".dart",
+    ".ex",
+    ".exs",
     ".go",
     ".gql",
     ".graphql",
     ".java",
     ".js",
     ".jsx",
+    ".json",
     ".kt",
+    ".lua",
     ".md",
     ".mdx",
     ".mjs",
@@ -61,10 +68,14 @@ EVIDENCE_SUFFIXES = {
     ".rs",
     ".rst",
     ".scala",
+    ".sh",
     ".swift",
+    ".sql",
     ".ts",
     ".tsx",
     ".txt",
+    ".toml",
+    ".xml",
     ".yaml",
     ".yml",
 }
@@ -75,8 +86,11 @@ MANIFEST_NAMES = {
     "build.gradle.kts",
     "composer.json",
     "go.mod",
+    "mix.exs",
     "package.json",
+    "Package.swift",
     "pom.xml",
+    "pubspec.yaml",
     "pyproject.toml",
     "requirements-dev.txt",
     "requirements.txt",
@@ -86,12 +100,6 @@ MANIFEST_NAMES = {
 SCENARIO_HEADING = re.compile(
     r"^## ([A-Z][A-Z0-9]{1,5}-\d{2,3}):\s+(.+?)\s*$", re.MULTILINE
 )
-SOURCE_ROW = re.compile(
-    r"^\|\s*([A-Z][A-Z0-9]{1,5}-\d{2,3})\s*\|\s*"
-    r"(VERIFIED|SOURCED|NEEDS VERIFICATION)\s*\|(.*)$",
-    re.MULTILINE,
-)
-BACKTICK = re.compile(r"`([^`]+)`")
 MARKDOWN_LINK = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 
 
@@ -112,11 +120,46 @@ def parse_args() -> argparse.Namespace:
         default=[],
         help="Documentation root. Repeat when needed.",
     )
+    parser.add_argument(
+        "--source",
+        action="append",
+        default=[],
+        metavar="SOURCE_ID=PATH",
+        help="Portable code source mapping. Repeat when needed.",
+    )
+    parser.add_argument(
+        "--docs-source",
+        action="append",
+        default=[],
+        metavar="SOURCE_ID=PATH",
+        help="Portable documentation source mapping. Repeat when needed.",
+    )
+    parser.add_argument(
+        "--scope",
+        action="append",
+        default=[],
+        metavar="SOURCE_ID",
+        help="Source accessible during this contribution. Repeat when needed.",
+    )
+    parser.add_argument(
+        "--run-scope",
+        choices=("full", "contribution", "audit"),
+        default="full",
+        help="Full reconciliation, scoped contribution, or read-only audit.",
+    )
+    parser.add_argument(
+        "--evidence-ledger",
+        help="Internal JSON ledger used to write portable per-scenario evidence state.",
+    )
+    parser.add_argument(
+        "--base-state-digest",
+        help="Expected digest from the state read before editing. Reject stale writes.",
+    )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
         "--write-state",
         action="store_true",
-        help=f"Write {STATE_NAME} after a validated generation.",
+        help=f"Write portable state under {STATE_DIR_NAME} after validation.",
     )
     mode.add_argument(
         "--check-state",
@@ -152,6 +195,43 @@ def hash_text(text: str) -> str:
 
 
 def walk_evidence_files(root: Path, excluded: Path | None = None) -> list[Path]:
+    if (root / ".git").exists():
+        try:
+            result = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "ls-files",
+                    "--cached",
+                    "--others",
+                    "--exclude-standard",
+                    "-z",
+                ],
+                check=False,
+                capture_output=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            result = None
+        if result is not None and result.returncode == 0:
+            files: list[Path] = []
+            for raw in result.stdout.split(b"\0"):
+                if not raw:
+                    continue
+                path = root / Path(raw.decode("utf-8", errors="replace"))
+                if excluded and (path == excluded or path.is_relative_to(excluded)):
+                    continue
+                if any(part in SKIP_DIRS for part in path.relative_to(root).parts):
+                    continue
+                if (
+                    path.suffix.lower() in EVIDENCE_SUFFIXES
+                    or path.name in MANIFEST_NAMES
+                    or path.suffix.lower() == ".csproj"
+                ) and path.is_file():
+                    files.append(path)
+            return sorted(files)
+
     files: list[Path] = []
     for current, dirs, names in os.walk(root):
         base = Path(current)
@@ -230,84 +310,6 @@ def scenario_blocks(text: str) -> list[dict[str, str]]:
     return blocks
 
 
-def clean_reference(raw: str) -> str:
-    value = raw.strip()
-    value = re.sub(r":\d+(?::\d+)?$", "", value)
-    value = value.split("#", 1)[0]
-    return value.strip()
-
-
-def resolve_reference(
-    raw: str,
-    roots: list[tuple[str, Path]],
-    preferred_kind: str,
-) -> dict[str, Any] | None:
-    cleaned = clean_reference(raw)
-    if not cleaned or cleaned.lower() in {"none", "n/a"}:
-        return None
-    path = Path(cleaned)
-    if path.is_absolute() and path.is_file():
-        for label, root in roots:
-            try:
-                relative_path = path.relative_to(root)
-            except ValueError:
-                continue
-            return {
-                "root": label,
-                "path": relative_path.as_posix(),
-                "sha256": hash_file(path),
-            }
-        return None
-    ordered = sorted(roots, key=lambda item: item[0].startswith(preferred_kind), reverse=True)
-    for label, root in ordered:
-        candidate = (root / cleaned).resolve()
-        if candidate.is_file():
-            return {
-                "root": label,
-                "path": cleaned,
-                "sha256": hash_file(candidate),
-            }
-    return None
-
-
-def parse_source_maps(
-    markdown_files: list[Path],
-    roots: list[tuple[str, Path]],
-) -> dict[str, dict[str, Any]]:
-    scenarios: dict[str, dict[str, Any]] = {}
-    for path in markdown_files:
-        text = read(path)
-        for match in SOURCE_ROW.finditer(text):
-            scenario_id = match.group(1)
-            status = match.group(2)
-            remaining = match.group(3)
-            cells = [cell.strip() for cell in remaining.split("|")]
-            code_cells = cells[:2]
-            docs_cells = cells[2:3]
-            references: list[dict[str, Any]] = []
-            unresolved: list[str] = []
-            for cell in code_cells:
-                for raw in BACKTICK.findall(cell):
-                    resolved = resolve_reference(raw, roots, "code")
-                    if resolved:
-                        references.append(resolved)
-                    elif "/" in raw or "." in Path(clean_reference(raw)).name:
-                        unresolved.append(raw)
-            for cell in docs_cells:
-                for raw in BACKTICK.findall(cell):
-                    resolved = resolve_reference(raw, roots, "docs")
-                    if resolved:
-                        references.append(resolved)
-                    elif "/" in raw or "." in Path(clean_reference(raw)).name:
-                        unresolved.append(raw)
-            scenarios[scenario_id] = {
-                "status": status,
-                "sources": references,
-                "unresolved_source_refs": sorted(set(unresolved)),
-            }
-    return scenarios
-
-
 def broken_links(markdown_files: list[Path]) -> list[str]:
     broken: list[str] = []
     for path in markdown_files:
@@ -320,24 +322,13 @@ def broken_links(markdown_files: list[Path]) -> list[str]:
     return sorted(set(broken))
 
 
-def inventory(
-    draft: Path,
-    code_roots: list[Path],
-    docs_roots: list[Path],
-) -> dict[str, Any]:
+def inventory(draft: Path) -> dict[str, Any]:
     markdown = sorted(path for path in draft.glob("*.md") if path.is_file())
-    roots = [
-        *((f"code{index}", root) for index, root in enumerate(code_roots)),
-        *((f"docs{index}", root) for index, root in enumerate(docs_roots)),
-    ]
     blocks = [
         {**scenario, "file": path.name}
         for path in markdown
         for scenario in scenario_blocks(read(path))
     ]
-    source_maps = parse_source_maps(markdown, roots)
-    for scenario in blocks:
-        scenario.update(source_maps.get(scenario["id"], {}))
     combined = "\n".join(read(path) for path in markdown)
     return {
         "draft_path": str(draft),
@@ -352,127 +343,395 @@ def inventory(
     }
 
 
-def current_roots(
-    draft: Path,
-    code_roots: list[Path],
-    docs_roots: list[Path],
-) -> dict[str, dict[str, Any]]:
-    entries: dict[str, dict[str, Any]] = {}
-    for kind, roots in (("code", code_roots), ("docs", docs_roots)):
-        for index, root in enumerate(roots):
-            label = f"{kind}{index}"
-            excluded = draft if draft == root or draft.is_relative_to(root) else None
-            entries[label] = {
-                "fingerprint": root_fingerprint(root, excluded),
-                "git": git_metadata(root),
-            }
-    return entries
+def collect_sources(args: argparse.Namespace) -> list[SourceSpec]:
+    specs = [
+        *(parse_source_spec(raw, "code") for raw in args.source),
+        *(parse_source_spec(raw, "docs") for raw in args.docs_source),
+        *legacy_specs(args.code_repo, args.docs_path),
+    ]
+    ensure_unique_sources(specs)
+    for spec in specs:
+        root = Path(spec.locator).expanduser().resolve()
+        if not root.is_dir():
+            raise ValueError(f"source is not a directory: {spec.source_id}")
+    return specs
 
 
-def build_state(
-    draft: Path,
-    draft_inventory: dict[str, Any],
-    roots: dict[str, dict[str, Any]],
-) -> dict[str, Any]:
+def source_roots(specs: list[SourceSpec]) -> dict[str, Path]:
     return {
-        "schema_version": STATE_VERSION,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "draft_digest": draft_inventory["draft_digest"],
-        "roots": roots,
-        "scenarios": {
-            scenario["id"]: {
-                "title": scenario["title"],
-                "status": scenario.get("status", "SOURCED"),
-                "body_hash": scenario["body_hash"],
-                "sources": scenario.get("sources", []),
-            }
-            for scenario in draft_inventory["scenarios"]
-        },
+        spec.source_id: Path(spec.locator).expanduser().resolve()
+        for spec in specs
     }
 
 
-def compare_state(
-    state: dict[str, Any],
-    draft_inventory: dict[str, Any],
-    roots: dict[str, dict[str, Any]],
-    code_roots: list[Path],
-    docs_roots: list[Path],
+def read_json(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(read(path))
+    except json.JSONDecodeError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def state_paths(draft: Path) -> tuple[Path, Path, Path]:
+    state_dir = draft / STATE_DIR_NAME
+    return state_dir, state_dir / "sources", state_dir / "scenarios"
+
+
+def load_structured_state(draft: Path) -> dict[str, Any]:
+    state_dir, sources_dir, scenarios_dir = state_paths(draft)
+    manifest = read_json(state_dir / MANIFEST_NAME)
+    sources = {
+        path.stem: read_json(path)
+        for path in sorted(sources_dir.glob("*.json"))
+        if path.is_file()
+    }
+    scenarios = {
+        path.stem: read_json(path)
+        for path in sorted(scenarios_dir.glob("*.json"))
+        if path.is_file()
+    }
+    return {"manifest": manifest, "sources": sources, "scenarios": scenarios}
+
+
+def load_evidence_ledger(path: str | None) -> dict[str, Any]:
+    if not path:
+        raise ValueError("--evidence-ledger is required with --write-state")
+    ledger_path = Path(path).expanduser().resolve()
+    if not ledger_path.is_file():
+        raise ValueError("evidence ledger is not a file")
+    ledger = read_json(ledger_path)
+    scenarios = ledger.get("scenarios")
+    if not isinstance(scenarios, dict):
+        raise ValueError("evidence ledger must contain a scenarios object")
+    return ledger
+
+
+def safe_source_reference(
+    source_id: str,
+    raw_path: str,
+    roots: dict[str, Path],
+) -> dict[str, str]:
+    root = roots.get(source_id)
+    if root is None:
+        raise ValueError(f"evidence names inaccessible source: {source_id}")
+    candidate_path = Path(raw_path)
+    if candidate_path.is_absolute() or ".." in candidate_path.parts:
+        raise ValueError("evidence paths must be source-relative and contained by their source")
+    candidate = (root / candidate_path).resolve()
+    try:
+        relative_path = candidate.relative_to(root)
+    except ValueError as error:
+        raise ValueError("evidence path escapes its source root") from error
+    if not candidate.is_file():
+        raise ValueError(f"evidence file does not exist: {source_id}:{raw_path}")
+    return {
+        "source_id": source_id,
+        "path": relative_path.as_posix(),
+        "sha256": hash_file(candidate),
+    }
+
+
+def normalize_ledger_scenario(
+    scenario_id: str,
+    entry: Any,
+    roots: dict[str, Path],
+    allowed_sources: set[str],
 ) -> dict[str, Any]:
-    if state.get("schema_version") != STATE_VERSION:
+    if not isinstance(entry, dict):
+        raise ValueError(f"ledger scenario {scenario_id} must be an object")
+    status = entry.get("status", "SOURCED")
+    if status not in {"SOURCED", "VERIFIED"}:
+        raise ValueError(
+            f"ledger scenario {scenario_id} must be SOURCED or VERIFIED before publication"
+        )
+    raw_sources = entry.get("sources")
+    if not isinstance(raw_sources, list) or not raw_sources:
+        raise ValueError(f"ledger scenario {scenario_id} must cite at least one source")
+    sources: list[dict[str, str]] = []
+    for raw in raw_sources:
+        if not isinstance(raw, dict):
+            raise ValueError(f"ledger scenario {scenario_id} has an invalid source")
+        source_id = str(raw.get("source_id", ""))
+        path = str(raw.get("path", ""))
+        if source_id not in allowed_sources:
+            raise ValueError(
+                f"ledger scenario {scenario_id} cites source outside this run scope: {source_id}"
+            )
+        sources.append(safe_source_reference(source_id, path, roots))
+    return {
+        "sources": sorted(sources, key=lambda item: (item["source_id"], item["path"])),
+    }
+
+
+def structured_compare(
+    draft_inventory: dict[str, Any],
+    state: dict[str, Any],
+    roots: dict[str, Path],
+) -> dict[str, Any]:
+    manifest = state["manifest"]
+    previous_scenarios = state["scenarios"]
+    draft = Path(draft_inventory["draft_path"]).resolve()
+    if manifest.get("schema_version") != STATE_VERSION:
         return {
             "full_audit_required": True,
-            "reason": "state schema is missing or unsupported",
+            "coverage_scan_required": True,
+            "reason": "portable collaboration state is missing or unsupported",
+            "impacted_scenarios": [
+                scenario["id"] for scenario in draft_inventory["scenarios"]
+            ],
+            "reusable_scenarios": [],
         }
-    root_paths = {
-        **{f"code{index}": root for index, root in enumerate(code_roots)},
-        **{f"docs{index}": root for index, root in enumerate(docs_roots)},
+
+    current_by_id = {
+        scenario["id"]: scenario for scenario in draft_inventory["scenarios"]
     }
-    previous_roots = state.get("roots", {})
-    previous_scenarios = state.get("scenarios", {})
-    changed_roots = sorted(
-        label
-        for label, current in roots.items()
-        if previous_roots.get(label, {}).get("fingerprint", {}).get("digest")
-        != current.get("fingerprint", {}).get("digest")
-    )
     impacted: set[str] = set()
+    changed_sources: set[str] = set()
+    for source_id, root in roots.items():
+        prior = state["sources"].get(source_id, {})
+        current_git = git_metadata(root)
+        if (
+            prior.get("revision")
+            and prior.get("revision") == current_git.get("commit")
+            and not prior.get("dirty")
+            and not current_git.get("dirty")
+        ):
+            current = prior.get("fingerprint", {})
+        else:
+            current = root_fingerprint(
+                root,
+                draft if draft == root or draft.is_relative_to(root) else None,
+            )
+        if prior.get("fingerprint", {}).get("digest") != current.get("digest"):
+            changed_sources.add(source_id)
+
     missing_sources: dict[str, list[str]] = {}
-    for scenario_id, scenario in previous_scenarios.items():
-        for source in scenario.get("sources", []):
-            label = source.get("root")
-            source_path = source.get("path")
-            root = root_paths.get(label)
-            if not root or not source_path:
-                impacted.add(scenario_id)
+    preserved_out_of_scope: list[str] = []
+    for scenario_id, prior in previous_scenarios.items():
+        current = current_by_id.get(scenario_id)
+        if current and current["body_hash"] != prior.get("body_hash"):
+            impacted.add(scenario_id)
+        for source in prior.get("sources", []):
+            source_id = source.get("source_id")
+            path = source.get("path")
+            root = roots.get(source_id)
+            if root is None:
+                preserved_out_of_scope.append(scenario_id)
                 continue
-            candidate = (root / source_path).resolve()
+            candidate = (root / str(path)).resolve()
             current_hash = hash_file(candidate) if candidate.is_file() else ""
             if current_hash != source.get("sha256"):
                 impacted.add(scenario_id)
                 if not current_hash:
-                    missing_sources.setdefault(scenario_id, []).append(source_path)
+                    missing_sources.setdefault(scenario_id, []).append(str(path))
 
-    edited_scenarios = sorted(
-        scenario["id"]
-        for scenario in draft_inventory["scenarios"]
-        if scenario["id"] in previous_scenarios
-        and scenario["body_hash"]
-        != previous_scenarios[scenario["id"]].get("body_hash")
-    )
-    impacted.update(edited_scenarios)
-    current_ids = {scenario["id"] for scenario in draft_inventory["scenarios"]}
+    current_ids = set(current_by_id)
     previous_ids = set(previous_scenarios)
-    draft_changed = state.get("draft_digest") != draft_inventory["draft_digest"]
-    scenarios_without_sources = sorted(
-        scenario["id"]
-        for scenario in draft_inventory["scenarios"]
-        if not scenario.get("sources")
-    )
-    full_audit = bool(
-        not previous_ids
-        or current_ids != previous_ids
-        or draft_inventory["broken_links"]
-    )
     reusable = sorted(
         scenario_id
-        for scenario_id in current_ids
+        for scenario_id in current_ids & previous_ids
         if scenario_id not in impacted
-        and scenario_id not in scenarios_without_sources
-        and scenario_id in previous_ids
+        and bool(previous_scenarios[scenario_id].get("sources"))
     )
     return {
-        "full_audit_required": full_audit,
-        "coverage_scan_required": bool(changed_roots),
-        "draft_review_required": draft_changed,
-        "changed_roots": changed_roots,
-        "edited_scenarios": edited_scenarios,
+        "full_audit_required": current_ids != previous_ids,
+        "coverage_scan_required": bool(changed_sources),
+        "draft_review_required": (
+            manifest.get("draft_digest") != draft_inventory["draft_digest"]
+        ),
+        "changed_sources": sorted(changed_sources),
         "impacted_scenarios": sorted(impacted),
         "reusable_scenarios": reusable,
-        "scenarios_without_sources": scenarios_without_sources,
+        "preserved_out_of_scope": sorted(set(preserved_out_of_scope)),
         "missing_sources": missing_sources,
         "added_scenarios": sorted(current_ids - previous_ids),
         "removed_scenarios": sorted(previous_ids - current_ids),
     }
+
+
+def write_json(path: Path, value: dict[str, Any]) -> None:
+    path.write_text(
+        json.dumps(value, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def write_structured_state(
+    draft: Path,
+    draft_inventory: dict[str, Any],
+    specs: list[SourceSpec],
+    ledger: dict[str, Any],
+    run_scope: str,
+    scope_ids: set[str],
+    base_state_digest: str | None,
+) -> dict[str, Any]:
+    roots = source_roots(specs)
+    existing = load_structured_state(draft)
+    existing_manifest = existing["manifest"]
+    if base_state_digest and existing_manifest.get("state_digest") != base_state_digest:
+        raise ValueError("state changed after analysis; reload the canonical draft before writing")
+
+    draft_by_id = {
+        scenario["id"]: scenario for scenario in draft_inventory["scenarios"]
+    }
+    ledger_entries = ledger["scenarios"]
+    unknown_ids = sorted(set(ledger_entries) - set(draft_by_id))
+    if unknown_ids:
+        raise ValueError(f"ledger contains unknown scenarios: {', '.join(unknown_ids)}")
+
+    allowed_sources = scope_ids or set(roots)
+    if not allowed_sources <= set(roots):
+        unknown = sorted(allowed_sources - set(roots))
+        raise ValueError(f"scope names inaccessible sources: {', '.join(unknown)}")
+    if run_scope == "full" and set(ledger_entries) != set(draft_by_id):
+        missing = sorted(set(draft_by_id) - set(ledger_entries))
+        raise ValueError(
+            "full state write requires evidence for every scenario"
+            + (f": {', '.join(missing)}" if missing else "")
+        )
+    if run_scope == "full" and scope_ids and scope_ids != set(roots):
+        raise ValueError("full state write requires every accessible source in scope")
+    if run_scope == "contribution" and not scope_ids:
+        raise ValueError("contribution state write requires at least one --scope")
+
+    normalized = {
+        scenario_id: normalize_ledger_scenario(
+            scenario_id,
+            entry,
+            roots,
+            allowed_sources,
+        )
+        for scenario_id, entry in ledger_entries.items()
+    }
+
+    previous = existing["scenarios"]
+    if run_scope == "contribution":
+        if not previous and set(ledger_entries) != set(draft_by_id):
+            raise ValueError(
+                "the first state write must cover every published scenario before scoped "
+                "contributions can preserve unavailable evidence"
+            )
+        removed = sorted(set(previous) - set(draft_by_id))
+        if removed:
+            raise ValueError(
+                "a contribution run cannot remove scenarios outside a full reconciliation"
+            )
+        changed_without_evidence = sorted(
+            scenario_id
+            for scenario_id, prior in previous.items()
+            if scenario_id in draft_by_id
+            and scenario_id not in normalized
+            and prior.get("body_hash") != draft_by_id[scenario_id]["body_hash"]
+        )
+        if changed_without_evidence:
+            raise ValueError(
+                "a contribution run cannot change scenarios without scoped evidence: "
+                + ", ".join(changed_without_evidence)
+            )
+        scenario_state = {
+            scenario_id: {
+                "title": prior.get("title"),
+                "body_hash": prior.get("body_hash"),
+                "sources": prior.get("sources", []),
+            }
+            for scenario_id, prior in previous.items()
+            if scenario_id in draft_by_id
+        }
+    else:
+        scenario_state = {}
+
+    for scenario_id, current in draft_by_id.items():
+        if scenario_id in normalized:
+            normalized_entry = normalized[scenario_id]
+            if run_scope == "contribution" and scenario_id in previous:
+                preserved_sources = [
+                    source
+                    for source in previous[scenario_id].get("sources", [])
+                    if source.get("source_id") not in allowed_sources
+                ]
+                normalized_entry = {
+                    **normalized_entry,
+                    "sources": sorted(
+                        [*preserved_sources, *normalized_entry["sources"]],
+                        key=lambda item: (item["source_id"], item["path"]),
+                    ),
+                }
+            scenario_state[scenario_id] = {
+                "title": current["title"],
+                "body_hash": current["body_hash"],
+                **normalized_entry,
+            }
+        elif scenario_id in scenario_state:
+            scenario_state[scenario_id] = {
+                **scenario_state[scenario_id],
+                "title": current["title"],
+                "body_hash": current["body_hash"],
+            }
+
+    state_dir, sources_dir, scenarios_dir = state_paths(draft)
+    sources_dir.mkdir(parents=True, exist_ok=True)
+    scenarios_dir.mkdir(parents=True, exist_ok=True)
+
+    previous_sources = existing["sources"]
+    source_state = (
+        {
+            source_id: {
+                key: value
+                for key, value in prior.items()
+                if key
+                in {
+                    "source_id",
+                    "kind",
+                    "revision",
+                    "dirty",
+                    "fingerprint",
+                }
+            }
+            for source_id, prior in previous_sources.items()
+        }
+        if run_scope == "contribution"
+        else {}
+    )
+    for spec in specs:
+        if spec.source_id not in allowed_sources and run_scope == "contribution":
+            continue
+        root = roots[spec.source_id]
+        git = git_metadata(root)
+        source_state[spec.source_id] = {
+            "source_id": spec.source_id,
+            "kind": spec.kind,
+            "revision": git.get("commit"),
+            "dirty": git.get("dirty"),
+            "fingerprint": root_fingerprint(
+                root,
+                draft if draft == root or draft.is_relative_to(root) else None,
+            ),
+        }
+
+    if run_scope == "full":
+        for path in sources_dir.glob("*.json"):
+            if path.stem not in source_state:
+                path.unlink()
+        for path in scenarios_dir.glob("*.json"):
+            if path.stem not in scenario_state:
+                path.unlink()
+
+    for source_id, value in source_state.items():
+        write_json(sources_dir / f"{source_id}.json", value)
+    for scenario_id, value in scenario_state.items():
+        write_json(scenarios_dir / f"{scenario_id}.json", value)
+
+    core_manifest = {
+        "schema_version": STATE_VERSION,
+        "draft_digest": draft_inventory["draft_digest"],
+        "run_scope": run_scope,
+        "source_ids": sorted(source_state),
+        "scenario_ids": sorted(scenario_state),
+    }
+    state_digest = hash_text(json.dumps(core_manifest, sort_keys=True))
+    manifest = {**core_manifest, "state_digest": state_digest}
+    write_json(state_dir / MANIFEST_NAME, manifest)
+    return manifest
 
 
 def main() -> int:
@@ -480,46 +739,43 @@ def main() -> int:
     draft = Path(args.draft_path).expanduser().resolve()
     if not draft.is_dir():
         raise SystemExit(f"draft path is not a directory: {draft}")
-    code_roots = [Path(raw).expanduser().resolve() for raw in args.code_repo]
-    docs_roots = [Path(raw).expanduser().resolve() for raw in args.docs_path]
-    for root in [*code_roots, *docs_roots]:
-        if not root.exists():
-            raise SystemExit(f"source root does not exist: {root}")
-
-    report = inventory(draft, code_roots, docs_roots)
-    roots = current_roots(draft, code_roots, docs_roots)
-    state_path = draft / STATE_NAME
-    report["state_path"] = str(state_path)
-    report["state_found"] = state_path.is_file()
+    try:
+        specs = collect_sources(args)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+    roots_by_id = source_roots(specs)
+    report = inventory(draft)
+    state_dir, _, _ = state_paths(draft)
+    state = load_structured_state(draft)
+    report["state_path"] = str(state_dir)
+    report["state_found"] = bool(state["manifest"])
+    report["state_schema_version"] = state["manifest"].get("schema_version")
+    report["state_digest"] = state["manifest"].get("state_digest")
+    report["accessible_sources"] = sorted(roots_by_id)
+    report["run_scope"] = args.run_scope
 
     if args.check_state:
-        if not state_path.is_file():
-            report["incremental"] = {
-                "full_audit_required": True,
-                "coverage_scan_required": True,
-                "reason": "no saved evidence state exists",
-                "impacted_scenarios": [
-                    scenario["id"] for scenario in report["scenarios"]
-                ],
-                "reusable_scenarios": [],
-            }
-        else:
-            try:
-                state = json.loads(read(state_path))
-            except json.JSONDecodeError:
-                state = {}
-            report["incremental"] = compare_state(
-                state, report, roots, code_roots, docs_roots
-            )
+        report["incremental"] = structured_compare(report, state, roots_by_id)
 
     if args.write_state:
-        state = build_state(draft, report, roots)
-        state_path.write_text(
-            json.dumps(state, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+        if args.run_scope == "audit":
+            raise SystemExit("--write-state cannot be used with --run-scope audit")
+        try:
+            ledger = load_evidence_ledger(args.evidence_ledger)
+            manifest = write_structured_state(
+                draft,
+                report,
+                specs,
+                ledger,
+                args.run_scope,
+                set(args.scope),
+                args.base_state_digest,
+            )
+        except ValueError as error:
+            raise SystemExit(str(error)) from error
         report["state_found"] = True
         report["state_written"] = True
+        report["state_digest"] = manifest["state_digest"]
 
     output = json.dumps(report, indent=2, sort_keys=True) + "\n"
     if args.output:

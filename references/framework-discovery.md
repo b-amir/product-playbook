@@ -9,7 +9,8 @@
 5. Mobile products
 6. Full-stack products
 7. Unknown frameworks
-8. Source priority
+8. Mixed and multi-root products
+9. Source priority
 
 ## Browser frontends
 
@@ -122,12 +123,26 @@ evidence to the same scenario when both establish one journey.
 
 Look for:
 
+- Repository instruction files
 - Test commands and CI jobs
+- Makefiles, task runners, workspace manifests, and executable scripts
 - Browser, HTTP, CLI, queue, or device drivers
 - Setup fixtures and test naming conventions
 - Actions followed by observable assertions
 
 Report discovered evidence without forcing it into a known framework.
+
+## Mixed and multi-root products
+
+Keep every detected surface and component. Do not collapse a repository to one surface merely
+because an API, frontend, CLI, worker, or mobile dependency appears first.
+
+Use stable source IDs across runs. Merge evidence into one journey when a tester operates one
+interface flow. Keep component-specific scenarios when different operators, interfaces, setup, or
+failure evidence make them independently executable.
+
+When only some sources are accessible, bound coverage claims to those sources and preserve
+out-of-scope scenarios.
 
 ## Source priority
 

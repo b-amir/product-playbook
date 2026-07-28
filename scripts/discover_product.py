@@ -7,8 +7,19 @@ import argparse
 import json
 import os
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
+
+from source_utils import (
+    SourceSpec,
+    acquire_source,
+    create_workspace,
+    ensure_unique_sources,
+    is_remote_locator,
+    legacy_specs,
+    parse_source_spec,
+)
 
 
 SKIP_DIRS = {
@@ -34,23 +45,29 @@ SKIP_DIRS = {
     "vendor",
 }
 SOURCE_SUFFIXES = {
+    ".bats",
     ".cjs",
     ".cs",
     ".dart",
+    ".ex",
+    ".exs",
     ".go",
     ".java",
     ".js",
     ".jsx",
     ".kt",
+    ".lua",
     ".mjs",
     ".php",
     ".py",
     ".rb",
     ".rs",
     ".scala",
+    ".sh",
     ".swift",
     ".ts",
     ".tsx",
+    ".zig",
 }
 DOC_SUFFIXES = {".adoc", ".md", ".mdx", ".rst", ".txt"}
 CONTRACT_SUFFIXES = {".graphql", ".gql", ".proto", ".raml"}
@@ -61,16 +78,22 @@ MANIFEST_NAMES = {
     "build.gradle.kts",
     "composer.json",
     "go.mod",
+    "mix.exs",
     "package.json",
+    "Package.swift",
     "pom.xml",
+    "pubspec.yaml",
     "pyproject.toml",
     "requirements-dev.txt",
     "requirements.txt",
     "setup.cfg",
     "tox.ini",
+    "Makefile",
+    "Justfile",
+    "justfile",
 }
 TEST_NAME = re.compile(
-    r"(^test_|_test\.|\.test\.|\.spec\.|\.cy\.|tests?\.)",
+    r"(^test_|_test\.|\.test\.|\.spec\.|\.cy\.|tests?\.|_spec\.)",
     re.IGNORECASE,
 )
 PAGE_OBJECT_NAME = re.compile(r"(^|[-_.])(page|page[-_]?object)([-_.]|$)", re.IGNORECASE)
@@ -98,7 +121,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--code-repo",
         action="append",
-        required=True,
+        default=[],
         help="Local code repository path. Repeat for multiple repositories.",
     )
     parser.add_argument(
@@ -106,6 +129,31 @@ def parse_args() -> argparse.Namespace:
         action="append",
         default=[],
         help="Local documentation path. Repeat for multiple roots.",
+    )
+    parser.add_argument(
+        "--source",
+        action="append",
+        default=[],
+        metavar="SOURCE_ID=PATH_OR_URL",
+        help="Portable code source. Repeat for multiple sources.",
+    )
+    parser.add_argument(
+        "--docs-source",
+        action="append",
+        default=[],
+        metavar="SOURCE_ID=PATH_OR_URL",
+        help="Portable documentation source. Repeat for multiple sources.",
+    )
+    parser.add_argument(
+        "--source-ref",
+        action="append",
+        default=[],
+        metavar="SOURCE_ID=REF",
+        help="Optional branch, tag, or commit for a remote source.",
+    )
+    parser.add_argument(
+        "--workspace-dir",
+        help="Directory for remote read-only checkouts. A temporary directory is created by default.",
     )
     parser.add_argument(
         "--test-framework",
@@ -131,6 +179,40 @@ def parse_args() -> argparse.Namespace:
 
 
 def walk_files(root: Path, max_depth: int | None = None) -> list[Path]:
+    if (root / ".git").exists():
+        try:
+            result = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "ls-files",
+                    "--cached",
+                    "--others",
+                    "--exclude-standard",
+                    "-z",
+                ],
+                check=False,
+                capture_output=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            result = None
+        if result is not None and result.returncode == 0:
+            files: list[Path] = []
+            for raw in result.stdout.split(b"\0"):
+                if not raw:
+                    continue
+                relative_path = Path(raw.decode("utf-8", errors="replace"))
+                if any(part in SKIP_DIRS for part in relative_path.parts):
+                    continue
+                if max_depth is not None and len(relative_path.parts) - 1 > max_depth:
+                    continue
+                path = root / relative_path
+                if path.is_file():
+                    files.append(path)
+            return sorted(files)
+
     files: list[Path] = []
     root_depth = len(root.parts)
     for current, dirs, names in os.walk(root):
@@ -176,20 +258,27 @@ def select_manifests(files: list[Path], root: Path) -> tuple[str, list[str]]:
 
 def detect_languages(files: list[Path]) -> list[str]:
     mapping = {
+        ".bats": "shell",
         ".cs": "csharp",
         ".dart": "dart",
+        ".ex": "elixir",
+        ".exs": "elixir",
         ".go": "go",
         ".java": "java",
         ".js": "javascript",
         ".jsx": "javascript",
         ".kt": "kotlin",
+        ".lua": "lua",
         ".php": "php",
         ".py": "python",
         ".rb": "ruby",
         ".rs": "rust",
+        ".scala": "scala",
+        ".sh": "shell",
         ".swift": "swift",
         ".ts": "typescript",
         ".tsx": "typescript",
+        ".zig": "zig",
     }
     return sorted({mapping[path.suffix.lower()] for path in files if path.suffix.lower() in mapping})
 
@@ -222,6 +311,12 @@ def detect_test_frameworks(
         "rspec": [],
         "xunit": [],
         "cargo-test": [],
+        "appium": [],
+        "detox": [],
+        "xctest": [],
+        "espresso": [],
+        "flutter-test": [],
+        "bats": [],
     }
 
     if any(name.startswith("playwright.config.") for name in names):
@@ -262,6 +357,18 @@ def detect_test_frameworks(
         add_signal(signals, "xunit", ".NET test dependency")
     if any(path.endswith(".rs") and "/tests/" in f"/{path}" for path in paths):
         add_signal(signals, "cargo-test", "Rust integration tests")
+    if "appium" in project_text or "appium" in test_text:
+        add_signal(signals, "appium", "Appium dependency or test usage")
+    if "detox" in project_text or "device.launchapp" in test_text:
+        add_signal(signals, "detox", "Detox dependency or test usage")
+    if "xctest" in project_text or "xctest" in test_text:
+        add_signal(signals, "xctest", "XCTest dependency or test usage")
+    if "espresso" in project_text or "androidx.test.espresso" in test_text:
+        add_signal(signals, "espresso", "Espresso dependency or test usage")
+    if "flutter_test" in project_text or any(path.endswith("_test.dart") for path in paths):
+        add_signal(signals, "flutter-test", "Flutter test dependency or files")
+    if any(path.endswith(".bats") for path in paths) or "bats-core" in project_text:
+        add_signal(signals, "bats", "Bats dependency or test files")
 
     return [
         {"name": name, "signals": reasons}
@@ -292,15 +399,27 @@ def classify_tests_and_interfaces(
     api_tests: list[str] = []
     cli_tests: list[str] = []
     service_tests: list[str] = []
+    mobile_tests: list[str] = []
     page_objects: list[str] = []
     interfaces: list[str] = []
     instruction_files: list[str] = []
+    ci_files: list[str] = []
 
     for path in files:
         rel = relative(path, root)
         rel_lower = rel.lower()
         if path.name in {"AGENTS.md", "CLAUDE.md"}:
             instruction_files.append(rel)
+        if (
+            rel_lower.startswith((".github/workflows/", ".circleci/"))
+            or path.name
+            in {
+                ".gitlab-ci.yml",
+                "azure-pipelines.yml",
+                "Jenkinsfile",
+            }
+        ):
+            ci_files.append(rel)
         if path.suffix.lower() not in SOURCE_SUFFIXES:
             continue
         if INTERFACE_NAME.search(path.name) or any(
@@ -316,7 +435,20 @@ def classify_tests_and_interfaces(
             )
         ) and not TEST_NAME.search(path.name):
             page_objects.append(rel)
-        if not TEST_NAME.search(path.name):
+        test_path_signal = any(
+            part.lower()
+            in {
+                "e2e",
+                "integration",
+                "integration-tests",
+                "spec",
+                "specs",
+                "test",
+                "tests",
+            }
+            for part in Path(rel).parts[:-1]
+        )
+        if not TEST_NAME.search(path.name) and not test_path_signal:
             continue
 
         tests.append(rel)
@@ -357,6 +489,14 @@ def classify_tests_and_interfaces(
             "enqueue",
             "dequeue",
         )
+        mobile_markers = (
+            "device.launchapp",
+            "appium",
+            "xctest",
+            "espresso",
+            "widgettester",
+            "flutterdriver",
+        )
         if (
             any(part.lower() in {"e2e", "cypress", "playwright"} for part in Path(rel).parts)
             or any(marker in content for marker in browser_markers)
@@ -368,6 +508,8 @@ def classify_tests_and_interfaces(
             cli_tests.append(rel)
         if any(marker in content for marker in service_markers):
             service_tests.append(rel)
+        if any(marker in content for marker in mobile_markers):
+            mobile_tests.append(rel)
 
     return {
         "test_files": sorted(tests)[:max_items],
@@ -375,6 +517,7 @@ def classify_tests_and_interfaces(
         "api_test_files": sorted(api_tests)[:max_items],
         "cli_test_files": sorted(cli_tests)[:max_items],
         "service_test_files": sorted(service_tests)[:max_items],
+        "mobile_test_files": sorted(mobile_tests)[:max_items],
         "test_directories": sorted(
             {
                 Path(test).parent.as_posix()
@@ -385,6 +528,7 @@ def classify_tests_and_interfaces(
         "page_object_candidates": sorted(page_objects)[:max_items],
         "interface_source_candidates": sorted(interfaces)[:max_items],
         "instruction_files": sorted(instruction_files)[:max_items],
+        "ci_files": sorted(ci_files)[:max_items],
     }
 
 
@@ -441,7 +585,7 @@ def select_surface(
     api = bool(classified["api_test_files"] or contracts or "api" in signal_names)
     cli = bool(classified["cli_test_files"] or "cli" in signal_names)
     service = bool(classified["service_test_files"] or "service" in signal_names)
-    mobile = "mobile" in signal_names
+    mobile = bool(classified["mobile_test_files"] or "mobile" in signal_names)
     if browser and api:
         return "fullstack"
     if browser:
@@ -455,6 +599,44 @@ def select_surface(
     if mobile:
         return "mobile"
     return "unknown"
+
+
+def surface_profile(
+    classified: dict[str, list[str]],
+    contracts: list[str],
+    project_signals: list[dict[str, Any]],
+) -> dict[str, Any]:
+    signal_names = {signal["name"] for signal in project_signals}
+    scores: dict[str, float] = {}
+    if classified["browser_test_files"]:
+        scores["frontend"] = 0.95
+    if classified["api_test_files"] or contracts:
+        scores["api"] = 0.95
+    elif "api" in signal_names:
+        scores["api"] = 0.72
+    if classified["cli_test_files"]:
+        scores["cli"] = 0.92
+    elif "cli" in signal_names:
+        scores["cli"] = 0.7
+    if classified["service_test_files"]:
+        scores["service"] = 0.9
+    elif "service" in signal_names:
+        scores["service"] = 0.7
+    if classified["mobile_test_files"]:
+        scores["mobile"] = 0.92
+    elif "mobile" in signal_names:
+        scores["mobile"] = 0.72
+    surfaces = sorted(scores, key=lambda name: (-scores[name], name))
+    primary = "unknown"
+    if "frontend" in scores and "api" in scores:
+        primary = "fullstack"
+    elif surfaces:
+        primary = surfaces[0]
+    return {
+        "surfaces": surfaces or ["unknown"],
+        "surface_confidence": scores,
+        "primary_surface": primary,
+    }
 
 
 def detect_test_commands(
@@ -510,10 +692,97 @@ def detect_test_commands(
         commands.setdefault("junit", "./gradlew test")
     if "xunit" in framework_names:
         commands.setdefault("dotnet-test", "dotnet test")
+    if "flutter-test" in framework_names:
+        commands.setdefault("flutter-test", "flutter test")
+    if "bats" in framework_names:
+        commands.setdefault("bats", "bats tests")
+    makefile = root / "Makefile"
+    if makefile.is_file():
+        make_text = read_text(makefile, 100_000)
+        for target in re.findall(r"^([A-Za-z0-9_.-]*(?:test|check)[A-Za-z0-9_.-]*):", make_text, re.M):
+            commands.setdefault(f"make-{target}", f"make {target}")
+    for name in ("Justfile", "justfile"):
+        justfile = root / name
+        if justfile.is_file():
+            just_text = read_text(justfile, 100_000)
+            for recipe in re.findall(
+                r"^([A-Za-z0-9_-]*(?:test|check)[A-Za-z0-9_-]*):",
+                just_text,
+                re.M,
+            ):
+                commands.setdefault(f"just-{recipe}", f"just {recipe}")
     return commands
 
 
-def discover_repository(root: Path, args: argparse.Namespace) -> dict[str, Any]:
+def discover_component_candidates(
+    root: Path,
+    files: list[Path],
+    args: argparse.Namespace,
+    source_id: str,
+) -> list[dict[str, Any]]:
+    candidates = sorted(
+        {
+            path.parent
+            for path in files
+            if path.name in MANIFEST_NAMES or path.suffix.lower() == ".csproj"
+        }
+    )
+    nested = [path for path in candidates if path != root]
+    component_roots = nested or [root]
+    components: list[dict[str, Any]] = []
+    for component_root in component_roots:
+        component_files = [
+            path
+            for path in files
+            if path == component_root or path.is_relative_to(component_root)
+        ]
+        project_text, _ = select_manifests(component_files, component_root)
+        frameworks = detect_test_frameworks(
+            component_files,
+            project_text,
+            component_root,
+        )
+        classified = classify_tests_and_interfaces(
+            component_files,
+            component_root,
+            args.max_items,
+        )
+        contracts = detect_contracts(component_files, component_root)
+        signals = detect_project_signals(project_text, component_files)
+        profile = surface_profile(classified, contracts, signals)
+        if args.product_surface != "auto":
+            profile = {
+                "surfaces": [args.product_surface],
+                "surface_confidence": {args.product_surface: 1.0},
+                "primary_surface": args.product_surface,
+            }
+        relative_root = relative(component_root, root)
+        components.append(
+            {
+                "component_id": (
+                    source_id if relative_root == "." else f"{source_id}:{relative_root}"
+                ),
+                "source_id": source_id,
+                "path": relative_root,
+                **profile,
+                "frameworks": [item["name"] for item in frameworks],
+                "test_files": classified["test_files"],
+                "test_commands": detect_test_commands(
+                    component_root,
+                    component_files,
+                    frameworks,
+                ),
+                "contract_candidates": contracts[: args.max_items],
+            }
+        )
+    return components
+
+
+def discover_repository(
+    root: Path,
+    args: argparse.Namespace,
+    source_id: str,
+) -> dict[str, Any]:
     files = walk_files(root)
     project_text, manifests = select_manifests(files, root)
     frameworks = detect_test_frameworks(files, project_text, root)
@@ -521,24 +790,74 @@ def discover_repository(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     contracts = detect_contracts(files, root)
     project_signals = detect_project_signals(project_text, files)
     surface = select_surface(args.product_surface, classified, contracts, project_signals)
+    profile = surface_profile(classified, contracts, project_signals)
+    if args.product_surface != "auto":
+        profile = {
+            "surfaces": [args.product_surface],
+            "surface_confidence": {args.product_surface: 1.0},
+            "primary_surface": args.product_surface,
+        }
+    unclassified = sorted(
+        {
+            relative(path, root)
+            for path in files
+            if (
+                any(
+                    part.lower()
+                    in {"e2e", "integration", "spec", "specs", "test", "tests"}
+                    for part in path.parts
+                )
+                or TEST_NAME.search(path.name)
+            )
+            and path.suffix.lower() not in SOURCE_SUFFIXES
+        }
+    )[: args.max_items]
     return {
+        "source_id": source_id,
         "root": str(root),
         "languages": detect_languages(files),
-        "selected_surface": surface,
+        "selected_surface": profile["primary_surface"] if args.product_surface == "auto" else surface,
+        **profile,
         "test_framework_candidates": frameworks,
         "project_signals": project_signals,
         "project_manifests": manifests,
         "contract_candidates": contracts[: args.max_items],
         "test_commands": detect_test_commands(root, files, frameworks),
+        "unclassified_test_candidates": unclassified,
+        "recommended_next_probes": (
+            []
+            if frameworks or classified["test_files"]
+            else [
+                "Inspect repository instructions and CI workflows.",
+                "Inspect task-runner files and executable scripts for test commands.",
+                "Identify actions followed by observable assertions.",
+            ]
+        ),
+        "component_candidates": discover_component_candidates(
+            root,
+            files,
+            args,
+            source_id,
+        ),
         **classified,
     }
 
 
-def discover_docs(paths: list[Path], max_items: int) -> list[dict[str, Any]]:
+def discover_docs(
+    sources: list[tuple[str, Path]],
+    max_items: int,
+) -> list[dict[str, Any]]:
     reports: list[dict[str, Any]] = []
-    for root in paths:
+    for source_id, root in sources:
         if not root.exists():
-            reports.append({"root": str(root), "error": "path does not exist", "files": []})
+            reports.append(
+                {
+                    "source_id": source_id,
+                    "root": str(root),
+                    "error": "path does not exist",
+                    "files": [],
+                }
+            )
             continue
         files = [root] if root.is_file() else walk_files(root)
         docs = [
@@ -546,8 +865,48 @@ def discover_docs(paths: list[Path], max_items: int) -> list[dict[str, Any]]:
             for path in files
             if path.is_file() and path.suffix.lower() in DOC_SUFFIXES
         ]
-        reports.append({"root": str(root), "files": sorted(docs)[:max_items]})
+        reports.append(
+            {"source_id": source_id, "root": str(root), "files": sorted(docs)[:max_items]}
+        )
     return reports
+
+
+def parse_source_refs(raw_refs: list[str]) -> dict[str, str]:
+    refs: dict[str, str] = {}
+    for raw in raw_refs:
+        if "=" not in raw:
+            raise ValueError("source ref must use SOURCE_ID=REF")
+        source_id, ref = raw.split("=", 1)
+        source_id = source_id.strip().lower()
+        ref = ref.strip()
+        if not source_id or not ref:
+            raise ValueError("source ref must use SOURCE_ID=REF")
+        refs[source_id] = ref
+    return refs
+
+
+def collect_source_specs(args: argparse.Namespace) -> list[SourceSpec]:
+    specs = [
+        *(parse_source_spec(raw, "code") for raw in args.source),
+        *(parse_source_spec(raw, "docs") for raw in args.docs_source),
+        *legacy_specs(args.code_repo, args.docs_path),
+    ]
+    if not specs:
+        raise ValueError("provide at least one --source, --docs-source, or --code-repo")
+    ensure_unique_sources(specs)
+    refs = parse_source_refs(args.source_ref)
+    unknown_refs = sorted(set(refs) - {spec.source_id for spec in specs})
+    if unknown_refs:
+        raise ValueError(f"source refs name unknown sources: {', '.join(unknown_refs)}")
+    return [
+        SourceSpec(
+            source_id=spec.source_id,
+            locator=spec.locator,
+            kind=spec.kind,
+            ref=refs.get(spec.source_id),
+        )
+        for spec in specs
+    ]
 
 
 def inspect_draft_candidate(
@@ -620,13 +979,34 @@ def main() -> int:
     if args.max_items < 1:
         raise SystemExit("--max-items must be positive")
 
-    code_roots = [Path(raw).expanduser().resolve() for raw in args.code_repo]
-    for root in code_roots:
-        if not root.is_dir():
-            raise SystemExit(f"code repository is not a directory: {root}")
-    docs_paths = [Path(raw).expanduser().resolve() for raw in args.docs_path]
+    try:
+        specs = collect_source_specs(args)
+        needs_workspace = any(is_remote_locator(spec.locator) for spec in specs)
+        workspace = (
+            Path(args.workspace_dir).expanduser().resolve()
+            if args.workspace_dir
+            else create_workspace()
+            if needs_workspace
+            else None
+        )
+        acquired = [acquire_source(spec, workspace) for spec in specs]
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
 
-    repositories = [discover_repository(root, args) for root in code_roots]
+    code_sources = [source for source in acquired if source.kind == "code"]
+    docs_sources = [source for source in acquired if source.kind == "docs"]
+    code_roots = [source.root for source in code_sources]
+    docs_paths = [source.root for source in docs_sources]
+
+    repositories = [
+        {
+            **discover_repository(source.root, args, source.source_id),
+            "locator_type": source.locator_type,
+            "portable_locator": source.portable_locator,
+            "revision": source.revision,
+        }
+        for source in code_sources
+    ]
     framework_names = sorted(
         {
             candidate["name"]
@@ -634,11 +1014,22 @@ def main() -> int:
             for candidate in repository["test_framework_candidates"]
         }
     )
+    framework_override = [
+        item.strip().lower()
+        for item in args.test_framework.split(",")
+        if item.strip()
+    ]
     selected_frameworks = (
         framework_names
         if args.test_framework.lower() == "auto"
-        else [args.test_framework.lower()]
+        else framework_override
     )
+    for repository in repositories:
+        repository["selected_frameworks"] = (
+            [candidate["name"] for candidate in repository["test_framework_candidates"]]
+            if args.test_framework.lower() == "auto"
+            else selected_frameworks
+        )
     drafts = discover_drafts(
         code_roots, docs_paths, args.draft_path, args.output_dir
     )
@@ -670,7 +1061,11 @@ def main() -> int:
         recommended_output = None
         output_decision = "ask_which_draft"
         ask_before_write = True
-    elif len(code_roots) == 1 and not docs_paths:
+    elif (
+        len(code_sources) == 1
+        and code_sources[0].locator_type == "local"
+        and not docs_paths
+    ):
         recommended_output = str(code_roots[0] / "docs" / "playbook")
         output_decision = "default_single_code_repo"
         ask_before_write = False
@@ -689,8 +1084,23 @@ def main() -> int:
         mode = "create"
 
     report: dict[str, Any] = {
+        "sources": [
+            {
+                "source_id": source.source_id,
+                "kind": source.kind,
+                "root": str(source.root),
+                "locator_type": source.locator_type,
+                "portable_locator": source.portable_locator,
+                "revision": source.revision,
+                "cleanup_required": source.cleanup_required,
+            }
+            for source in acquired
+        ],
         "repositories": repositories,
-        "documentation": discover_docs(docs_paths, args.max_items),
+        "documentation": discover_docs(
+            [(source.source_id, source.root) for source in docs_sources],
+            args.max_items,
+        ),
         "selected_frameworks": selected_frameworks or ["unknown"],
         "existing_playbook_candidates": drafts,
         "mode_suggestion": mode,
@@ -700,6 +1110,26 @@ def main() -> int:
         "multi_evidence_roots": multi_evidence,
         "notes": [],
     }
+    cleanup_roots = sorted(
+        {
+            str(source.root)
+            for source in acquired
+            if source.cleanup_required
+        }
+    )
+    report["cleanup_paths"] = cleanup_roots
+    report["components"] = [
+        {
+            **component,
+            "frameworks": (
+                component["frameworks"]
+                if args.test_framework.lower() == "auto"
+                else selected_frameworks
+            ),
+        }
+        for repository in repositories
+        for component in repository["component_candidates"]
+    ]
     if output_decision == "ask_which_draft":
         report["notes"].append(
             "Multiple playbook drafts found. Ask which draft is authoritative before writing. "
@@ -707,7 +1137,7 @@ def main() -> int:
         )
     if output_decision == "ask_output_dir":
         report["notes"].append(
-            "Destination is ambiguous (multiple code repos and/or docs roots, and no unique draft). "
+            "Destination is ambiguous or the only code source is a temporary remote checkout. "
             "Ask for output_dir before writing. Reuse that same path on later runs so journeys "
             "reconcile into one product playbook. Suggest a shape like <docs-repo>/playbook only as "
             "an example. Do not invent a repository name."

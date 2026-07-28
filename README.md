@@ -1,121 +1,136 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/b-amir/product-playbook/main/assets/readme/hero.svg" width="100%" alt="Product Playbook turns automated tests and source into evidence-backed manual testing scenarios">
+  <img src="assets/readme/hero.svg" width="100%" alt="Product Playbook turns automated tests and source into evidence-backed manual testing scenarios">
 </p>
 
 <p align="center">
-  <a href="https://skills.sh/b-amir/product-playbook"><img src="https://img.shields.io/badge/skills.sh-product--playbook-000000" alt="skills.sh"></a>
-  <a href="https://agentskills.io/"><img src="https://img.shields.io/badge/format-Agent%20Skills-44403c" alt="Agent Skills format"></a>
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-166534" alt="MIT License"></a>
-</p>
-
-<p align="center">
-  <strong>Turn tests, contracts, and source into manual playbooks your team can run.</strong><br>
-  An <a href="https://agentskills.io/">Agent Skill</a> for QA, product, support, and ops.
+  <strong>Turn tests, contracts, source, and documentation into manual playbooks your team can run.</strong><br>
+  A portable Agent Skill for QA, product, support, and operations.
 </p>
 
 ## Install
 
-```bash
-npx skills add b-amir/product-playbook
-```
+Install this repository with an Agent Skills compatible installer, then ask:
 
-Then ask your agent:
+```bash
+npx skills add <github-owner>/<repository>
+```
 
 ```text
-Use $product-playbook with code_repo=/path/to/my-app and verify=false.
+Use $product-playbook with source=product=/path/to/repository and verify=false.
 ```
 
-Requires **Python 3.9+** for bundled helper scripts. No extra pip packages.
+Sources may be local directories or Git repository URLs. The bundled helpers require Python 3.9 or
+newer and use only the standard library.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/b-amir/product-playbook/main/assets/readme/workflow.svg" width="100%" alt="Seven-phase pipeline from discovery through validation">
+  <img src="assets/readme/workflow.svg" width="100%" alt="Product Playbook discovery, analysis, generation, validation, and reconciliation workflow">
 </p>
 
-## Why this exists
+## What it does
 
-Automated tests already describe how the product should behave. Product Playbook extracts that evidence and writes **tester-facing scenarios** with clear steps and pass criteria.
+Product Playbook discovers product journeys from executable evidence and writes tester-facing
+scenarios with direct steps and observable pass criteria.
 
-The published Markdown stays readable for non-engineers. Evidence status, source paths, and reconciliation notes stay in agent chat or `.product-playbook-state.json`.
+It supports:
 
-## What you get
+- frontend, API, full-stack, CLI, service, worker, integration, and mobile products;
+- local directories and remote Git repositories;
+- monorepos and products split across several repositories;
+- playbooks stored inside a source repository or in a separate directory;
+- complete reconciliation when every component is accessible;
+- scoped contributions when a team can access only part of the product;
+- portable evidence state without machine-specific paths.
+
+## One-command bootstrap
+
+```bash
+python3 scripts/bootstrap_playbook.py \
+  --source "web=/path/to/web" \
+  --source "api=https://github.com/example/api" \
+  --docs-source "docs=/path/to/docs" \
+  --output-dir "/path/to/canonical-playbook"
+```
+
+Bootstrap acquires remote repositories into a controlled workspace, discovers every accessible
+surface, finds tests and commands, identifies existing drafts, and reports the next action.
+
+Use `--source-ref "api=release-tag"` to select a branch, tag, or commit.
+
+After evidence analysis, render a new playbook deterministically:
+
+```bash
+python3 scripts/render_playbook.py "/path/to/evidence-plan.json" "/path/to/output"
+```
+
+Existing drafts are reconciled with focused patches instead of being rendered again.
+
+## Canonical output
 
 ```text
 <output_dir>/
-├── README.md                      # Hub with smoke path and setup checklist
-├── 01-<journey>.md                # Journey chapters with numbered scenarios
-├── results-template.md            # Reusable run record
-└── .product-playbook-state.json   # Internal evidence state (not for testers)
+├── README.md
+├── 01-<journey>.md
+├── results-template.md
+└── .product-playbook/
+    ├── manifest.json
+    ├── sources/
+    │   └── <source-id>.json
+    └── scenarios/
+        └── <scenario-id>.json
 ```
 
-Each scenario includes setup, ordered actions, observable pass criteria, and cleanup when evidence establishes it.
+The Markdown is tester-facing. The hidden state directory contains portable source-relative
+fingerprints used to reconcile later contributions. It contains no verification status, issues,
+authoring timestamps, decisions, or history. Publish only the Markdown files to testers.
 
-## Usage
+## Team contributions
 
-### Create a playbook
-
-```text
-Use $product-playbook to create a manual testing playbook for my app.
-
-code_repo=/path/to/my-app
-docs_path=/path/to/my-docs
-output_dir=/path/to/my-docs/playbook
-product_surface=auto
-verify=false
-```
-
-### Reconcile an existing draft
-
-```text
-Use $product-playbook to reconcile the playbook at /path/to/docs/playbook.
-
-code_repo=/path/to/my-app
-docs_path=/path/to/my-docs
-output_dir=/path/to/docs/playbook
-mode=reconcile
-verify=true
-```
-
-Pass `output_dir` when more than one evidence root is involved or when the playbook should live outside the app repo. With one code repo and no docs root, the default is `<code-repo>/docs/playbook`.
-
-<details>
-<summary><strong>More examples</strong></summary>
-
-List skills before installing:
+Every team reuses the same canonical output. A scoped run may add or update scenarios supported by
+its accessible sources, while preserving scenarios and evidence owned by unavailable sources.
 
 ```bash
-npx skills add b-amir/product-playbook --list
+python3 scripts/inventory_playbook.py "/path/to/canonical-playbook" \
+  --source "api=/path/to/api" \
+  --run-scope contribution \
+  --scope api \
+  --check-state
 ```
 
-Minimal single-repo prompt:
+After updating the Markdown and internal evidence ledger:
 
-```text
-Use $product-playbook with code_repo=/path/to/my-app and verify=false.
+```bash
+python3 scripts/validate_playbook.py "/path/to/canonical-playbook"
+
+python3 scripts/inventory_playbook.py "/path/to/canonical-playbook" \
+  --source "api=/path/to/api" \
+  --run-scope contribution \
+  --scope api \
+  --evidence-ledger "/path/to/ledger.json" \
+  --base-state-digest "<digest-read-before-editing>" \
+  --write-state
+
+python3 scripts/validate_playbook.py "/path/to/canonical-playbook" --require-state
 ```
 
-</details>
+The state digest prevents a stale contribution from overwriting newer work. Full reconciliation is
+required before removing scenarios.
 
-## Supported surfaces and agents
+## Validation
 
-| Surfaces | Frontend, API, full-stack, CLI, service, worker, integration, mobile |
-| -------- | --------------------------------------------------------------------- |
-| Agents   | Cursor, Claude Code, Claude.ai, Codex, GitHub Copilot, OpenCode, Gemini CLI, and others via the [`skills` CLI](https://github.com/vercel-labs/skills) |
+Run the bundled portability tests:
 
-## Repository layout
-
-```text
-product-playbook/
-├── SKILL.md              # Agent instructions
-├── scripts/              # discover, inventory, validate helpers
-├── references/           # reconciliation and output contract docs
-└── agents/openai.yaml    # Optional Codex interface hints
+```bash
+python3 -m unittest discover -s tests -v
 ```
+
+The test matrix covers mixed surfaces, unfamiliar toolchains, remote acquisition, portable state,
+and strict output validation.
 
 ## Reporting problems
 
-Open an issue at [github.com/b-amir/product-playbook/issues](https://github.com/b-amir/product-playbook/issues).
-
-Include your agent and OS, the paths you used (redact secrets), whether `verify=true`, and any script output.
+Open an issue in this repository. Include the agent and operating system, redact sensitive paths,
+and attach the relevant helper output.
 
 ## License
 
-MIT. See [LICENSE](./LICENSE).
+MIT. See [LICENSE](LICENSE).

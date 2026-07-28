@@ -3,14 +3,15 @@
 ## Contents
 
 1. Folder shape
-2. Hub requirements
-3. Chapter requirements
-4. Scenario requirements
-5. Results-template requirements
-6. Surface-specific requirements
-7. Reconciliation state
-8. Writing rules
-9. Forbidden in published Markdown
+2. Publication boundary
+3. Hub requirements
+4. Chapter requirements
+5. Scenario requirements
+6. Results-template requirements
+7. Surface-specific requirements
+8. Reconciliation state
+9. Writing rules
+10. Forbidden in published Markdown
 
 ## Folder shape
 
@@ -23,16 +24,36 @@ Create:
 ├── 02-<journey>.md
 ├── NN-quality-sweep.md
 ├── results-template.md
-└── .product-playbook-state.json
+└── .product-playbook/
+    ├── manifest.json
+    ├── sources/
+    └── scenarios/
 ```
 
 Add or omit journey chapters according to evidence. Number chapters in the order a user encounters
-them. Create the state file only after validating the Markdown.
+them. Create collaboration state only after validating the Markdown.
 
 The destination directory is chosen by the skill destination policy. Prefer one playbook tree per
 product. Do not publish separate per-repo playbooks for the same product unless the user explicitly
 wants different audiences (for example an API-only operator book). Even then, name folders by
 audience, not by repository brand.
+
+## Publication boundary
+
+Publish only finished instructions that a tester needs to operate the product and record a new run.
+Do not publish how the playbook was researched, generated, reconciled, verified, or changed.
+
+Keep all authoring issues, missing evidence, conflicts, verification needs, decisions, removals,
+source provenance, and change explanations in the current agent chat. Use a temporary evidence
+ledger while working, then discard it after portable fingerprints are written.
+
+The `.product-playbook/` directory is machine-facing collaboration state, not documentation. It may
+contain only current source-relative fingerprints and scenario body hashes. It must not contain
+verification status, authoring timestamps, issues, notes, decisions, or history.
+
+When distributing the playbook to testers, distribute only `README.md`, numbered journey chapters,
+quality-sweep chapters, and `results-template.md`. Do not include `.product-playbook/` in the
+tester-facing bundle.
 
 
 ## Hub requirements
@@ -142,6 +163,9 @@ Include:
 - Counts by result
 - Recommendation and sign-off
 
+Ship a blank reusable template. Do not prepopulate it with a previous run date, result, defect,
+blocker, recommendation, sign-off, operator, environment, or revision.
+
 Explain that a scenario passes only when all applicable required outcomes pass. Allow named
 optional subchecks to be recorded as N/A or Blocked in Notes without hiding a required failure.
 
@@ -188,9 +212,9 @@ optional subchecks to be recorded as N/A or Blocked in Notes without hiding a re
 
 ## Reconciliation state
 
-Write `.product-playbook-state.json` after successful validation by running
-`inventory_playbook.py --write-state`. Keep it machine-readable and free of secrets or absolute
-user-specific paths.
+Write `.product-playbook/` after successful validation by running
+`inventory_playbook.py --write-state` with an evidence ledger. Keep it machine-readable and free of
+secrets or absolute user-specific paths.
 
 Use the state only to narrow future fact-checking. Never present it as product behavior, never list
 it in the playbook map, and never ask testers to open it.
@@ -209,17 +233,22 @@ it in the playbook map, and never ask testers to open it.
 - Never include credentials, tokens, private links, real customer data, or production secrets.
 - Write finished procedures. Do not expose authoring uncertainty, evidence quality, or update
   history in the playbook.
+- Keep prior run results and defects out of the reusable results template.
 
 ## Forbidden in published Markdown
 
 Do not include any of the following in README, chapters, or the results template:
 
 - Verification index
-- Reconciliation summary or change history
+- Verification-needed, pending-verification, or last-verified notes
+- Reconciliation summary, changelog, authoring timeline, or change history
 - Chapter Sources / source-map tables
+- Evidence ledgers, provenance, traceability, or authoring-status sections
 - Evidence statuses such as `VERIFIED`, `SOURCED`, or `NEEDS VERIFICATION`
 - Inline markers such as `⚠️ NEEDS VERIFICATION`
-- Conflict or gap columns
+- Known-issue, open-question, conflict, unresolved-item, TODO, or gap sections
+- Hidden HTML comments or authoring metadata in frontmatter
+- Prepopulated test results, defects, blockers, recommendations, or sign-offs
 - Links that exist only to explain how the playbook was authored
 - Mentions of automated test file paths unless the tester must run those commands as part of the
   product procedure

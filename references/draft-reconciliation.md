@@ -16,12 +16,12 @@ Use this order:
 
 1. Use an explicit `output_dir` when provided.
 2. Use an explicit `draft_path` when provided.
-3. Use the only confidently detected playbook candidate under the supplied roots.
+3. Use the only confidently detected playbook candidate under the supplied sources.
 4. Ask the user when multiple candidates exist. Never merge drafts automatically.
-5. With exactly one `code_repo` and no `docs_path`, create `<code-repo>/docs/playbook` when no draft
-   exists.
-6. With multiple `code_repo` roots, any `docs_path`, or an otherwise ambiguous destination, ask for
-   `output_dir` before writing.
+5. With exactly one local code source and no separate docs source, create
+   `<local-source>/docs/playbook` when no draft exists.
+6. With remote-only inputs, several code sources, a separate docs source, or an otherwise ambiguous
+   destination, ask for `output_dir` before writing.
 
 Never hardcode product names or documentation-repo brand names. The same `output_dir` must be reused
 when additional evidence roots join later so the playbook reconciles instead of forking.
@@ -39,9 +39,9 @@ Do not treat draft prose as proof of current behavior.
 
 ## First reconciliation
 
-When no `.product-playbook-state.json` exists:
+When no `.product-playbook/manifest.json` exists:
 
-1. Run `inventory_playbook.py --check-state`.
+1. Run `inventory_playbook.py --check-state` with stable source IDs.
 2. Preserve the draft until the audit is complete.
 3. Match every draft scenario to current tests, contracts, source, docs, or observation.
 4. Classify each scenario as Keep, Update, Split, Merge, Remove, Add, or Needs more evidence.
@@ -55,7 +55,7 @@ A first reconciliation can reuse prose, but it cannot skip factual auditing.
 
 Use incremental reuse only when:
 
-- The state file exists and its schema is supported
+- The portable state directory exists and its schema is supported
 - The draft scenario set still matches the state
 - Relevant source fingerprints are unchanged for reused scenarios
 
@@ -111,6 +111,7 @@ Do not save tokens by:
 - Make a focused patch rather than rewriting the directory when reconciliation is safe.
 - Preserve unrelated user edits.
 - Do not delete superseded scenarios until the chat report explains the replacement.
-- Write `.product-playbook-state.json` only after the playbook validates.
+- Write `.product-playbook/` only after the playbook validates.
 - Never store credentials, access links, customer data, or absolute user-specific paths in state.
 - Keep the published Markdown tester-facing. Put authoring uncertainty only in chat or state.
+- During a contribution, preserve inaccessible scenarios and reject unsupported edits.
