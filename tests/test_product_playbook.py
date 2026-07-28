@@ -1084,6 +1084,9 @@ class HtmlExportTests(unittest.TestCase):
             self.assertIn('class="field-label"', body)
             self.assertIn(">Steps<", body)
             self.assertIn(">Expected<", body)
+            # Step copy is wrapped so CSS flex/grid cannot orphan <strong> labels.
+            self.assertIn('class="li-body"', body)
+            self.assertIn("<span class=\"li-body\">", body)
             # No shouted uppercase field costume.
             self.assertNotIn(">GOAL<", body)
             # Sections appear in tester-facing order. Assert on section anchors

@@ -131,6 +131,10 @@ _FIELD_KEYS = {
     "cleanup": "cleanup",
     "note": "note",
     "notes": "note",
+    "record": "record",
+    "optional": "optional",
+    "optional follow-up": "optional",
+    "handoff": "handoff",
 }
 _FIELD_LABELS = {
     "goal": "Goal",
@@ -140,6 +144,9 @@ _FIELD_LABELS = {
     "setup": "Setup",
     "cleanup": "Cleanup",
     "note": "Note",
+    "record": "Record",
+    "optional": "Optional follow-up",
+    "handoff": "Handoff",
 }
 
 
@@ -379,10 +386,14 @@ def render_markdown(body: str) -> str:
                 b = _BULLET.match(lines[i])
                 o = _ORDERED.match(lines[i])
                 if b:
-                    out.append(f"<li>{_render_inline(b.group(2))}</li>")
+                    out.append(
+                        f"<li><span class=\"li-body\">{_render_inline(b.group(2))}</span></li>"
+                    )
                     i += 1
                 elif o:
-                    out.append(f"<li>{_render_inline(o.group(3))}</li>")
+                    out.append(
+                        f"<li><span class=\"li-body\">{_render_inline(o.group(3))}</span></li>"
+                    )
                     i += 1
                 else:
                     break
@@ -578,87 +589,123 @@ article.scenario:first-of-type {
   color: var(--ink);
 }
 
-/* Steps: hanging tabular numbers, generous rhythm */
+/* Steps: hanging tabular numbers.
+   IMPORTANT: each <li> must wrap copy in one .li-body child. CSS grid/flex
+   otherwise treats text nodes and <strong> as separate items, shoving UI
+   labels into the 2rem number column (one word per line in print). */
 ol.steps {
   list-style: none;
   margin: 0 0 var(--space-5);
   padding: 0;
   counter-reset: step;
+  max-width: var(--measure);
 }
 ol.steps > li {
   counter-increment: step;
-  display: grid;
-  grid-template-columns: 2rem minmax(0, 1fr);
-  column-gap: var(--space-3);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
   margin: 0;
-  padding: 0.65rem 0;
+  padding: 0.7rem 0;
   border-bottom: 1px solid var(--hairline);
-  line-height: 1.45;
+  line-height: 1.5;
 }
 ol.steps > li:last-child { border-bottom: none; }
 ol.steps > li::before {
   content: counter(step, decimal-leading-zero);
+  flex: 0 0 1.75rem;
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
-  padding-top: 0.15rem;
+  padding-top: 0.2rem;
+}
+ol.steps .li-body {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .scenario-body > ul {
   list-style: none;
   margin: 0 0 var(--space-5);
   padding: 0;
+  max-width: var(--measure);
 }
 .scenario-body > ul > li {
   position: relative;
   margin: 0;
-  padding: 0.45rem 0 0.45rem 1.1rem;
-  line-height: 1.45;
+  padding: 0.55rem 0 0.55rem 1.15rem;
+  line-height: 1.5;
 }
 .scenario-body > ul > li::before {
   content: "";
   position: absolute;
   left: 0;
-  top: 0.85em;
+  top: 0.95em;
   width: 0.35rem;
   height: 0.35rem;
   border-radius: 50%;
   background: var(--ink);
 }
+.scenario-body > ul .li-body { display: inline; }
 
-/* Tables */
+/* Tables: readable on paper, especially wide results grids */
 table {
   border-collapse: collapse;
   width: 100%;
-  margin: var(--space-4) 0 var(--space-6);
-  font-size: 0.9375rem;
+  margin: var(--space-5) 0 var(--space-6);
+  font-size: 0.875rem;
+  line-height: 1.4;
 }
 thead { break-after: avoid; }
 th, td {
   border-bottom: 1px solid var(--hairline);
-  padding: 0.7rem 0.75rem;
+  padding: 0.65rem 0.7rem;
   text-align: left;
   vertical-align: top;
+  overflow-wrap: anywhere;
+  hyphens: auto;
 }
 thead th {
   border-bottom: 1px solid var(--ink);
   font-weight: 600;
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   letter-spacing: -0.01em;
   color: var(--muted);
-  padding-top: 0;
+  padding: 0.35rem 0.7rem 0.55rem;
+  vertical-align: bottom;
 }
 tr { break-inside: avoid; }
-td:first-child, th:first-child { padding-left: 0; }
+td:first-child, th:first-child {
+  padding-left: 0;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  width: 1%;
+}
 td:last-child, th:last-child { padding-right: 0; }
 
-.write-cell { min-width: 5rem; height: 1.75rem; }
+/* Wide sheets (5+ columns): denser type, still keep IDs on one line */
+table:has(th:nth-child(5)) {
+  font-size: 0.78rem;
+}
+table:has(th:nth-child(5)) th,
+table:has(th:nth-child(5)) td {
+  padding: 0.55rem 0.45rem;
+}
+
+.write-cell {
+  min-width: 4.5rem;
+  height: 2rem;
+  vertical-align: bottom;
+  padding-top: 0.85rem;
+  padding-bottom: 0.45rem;
+}
 .write-line {
   display: block;
   width: 100%;
-  height: 1.2rem;
+  min-width: 3.5rem;
+  height: 1.15rem;
   border-bottom: 1px solid var(--rule);
 }
 
@@ -750,6 +797,11 @@ section.chapter:first-of-type { break-before: auto; page-break-before: avoid; }
   a { border-bottom: none; }
   .scenario-head > h2 { max-width: none; }
   h1 { max-width: none; }
+  /* Results and coverage grids need the full text block. */
+  table { font-size: 8.5pt; }
+  table:has(th:nth-child(5)) { font-size: 8pt; }
+  th, td { padding: 0.45rem 0.4rem; }
+  .write-cell { height: 1.85rem; }
 }
 """
 

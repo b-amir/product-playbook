@@ -36,6 +36,10 @@ Stack: `"Avenir Next", "Helvetica Neue", "Segoe UI", sans-serif` (local, no webf
 - Tight within a field; generous before the next field
 - No indent rail beside scenario bodies
 - Empty cells and note fences render as write-in lines, not empty gray boxes
+- Step rows use a single content wrapper so UI labels never fall into the
+  number column (CSS grid/flex otherwise splits text nodes and `<strong>`)
+- Wide result tables (5+ columns) use a denser type scale and keep ID cells
+  from wrapping mid-token
 
 ## Color
 
