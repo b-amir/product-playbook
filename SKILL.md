@@ -274,6 +274,45 @@ Read [references/output-contract.md](references/output-contract.md).
 - Keep scenario bodies appropriate for the least technical supported operator.
 - Never publish Sources tables, evidence status, reconciliation summaries, or gap markers.
 
+#### Optional single-file PDF or HTML export
+
+Markdown is the default and only automatic output. Produce a single combined PDF,
+or a single HTML file, only when the user explicitly asks for one. Never run this
+path for a normal creation, edit, reconciliation, or audit.
+
+First make sure the Markdown is valid, then export:
+
+```bash
+python3 <skill-dir>/scripts/validate_playbook.py "<output_dir>"
+
+# PDF (default): writes <output_dir>/playbook.pdf and removes the intermediate HTML.
+python3 <skill-dir>/scripts/export_playbook.py "<output_dir>" [--output PATH] [--force]
+
+# HTML only: writes <output_dir>/playbook.html and leaves it in place.
+python3 <skill-dir>/scripts/export_playbook.py "<output_dir>" --format html [--output PATH] [--force]
+```
+
+`export_playbook.py` reads only `README.md`, numbered chapters, and
+`results-template.md`. It ignores `.product-playbook-state.json` and any non-
+Markdown file, so collaboration state never reaches testers. The exporter itself
+needs only the standard library.
+
+`--format pdf` builds the print-ready HTML in a private location, then prints it
+to PDF using the first available converter: Google Chrome or Chromium headless,
+`wkhtmltopdf`, or `pandoc`. The intermediate HTML is deleted, leaving only
+`playbook.pdf`. If no converter is found, the export fails with a clear message
+instead of leaving an HTML file behind. Do not install a converter, and do not
+assume one is present.
+
+`--format html` writes a single self-contained `playbook.html` and stops there.
+Use it only when the user asks for HTML specifically. Do not print it to PDF in
+this mode and do not delete it: they asked for the HTML.
+
+Treat `playbook.pdf` and `playbook.html` as regenerable derived artifacts. They
+are not part of the canonical folder shape, are never written by the default
+workflow, and do not need to be reconciled on later edits. Delete or regenerate
+them whenever the Markdown changes.
+
 ### 6. Verify
 
 When verification is requested, follow the source repository's own commands. Prefer focused tests

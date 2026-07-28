@@ -35,6 +35,13 @@ product. Do not publish separate per-repo playbooks for the same product unless 
 wants different audiences (for example an API-only operator book). Even then, name folders by
 audience, not by repository brand.
 
+A `playbook.pdf` or `playbook.html` file may appear in this folder only when the user explicitly
+asks for a single-file PDF or HTML export. They are regenerable, non-canonical derived artifacts
+produced by `export_playbook.py` from the Markdown above. They are never written by the default
+workflow, are not part of the canonical tester-facing bundle, and must not be reconciled, validated
+as a source, or distributed in place of the Markdown. Delete or regenerate them whenever the
+Markdown changes.
+
 ## Publication boundary
 
 Publish only finished instructions that a tester needs to operate the product and record a new run.

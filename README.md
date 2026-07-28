@@ -109,6 +109,11 @@ The Markdown is tester-facing. The single hidden state file identifies itself wi
 reconcile later contributions. It contains no installation paths, verification status, issues,
 authoring timestamps, decisions, or history. Publish only the Markdown files to testers.
 
+Need a single PDF or HTML file? Ask the agent and it will run
+`scripts/export_playbook.py --format pdf` (default) to write `playbook.pdf`, or
+`--format html` to write a standalone `playbook.html`. Markdown stays the default
+output; these exports are produced only on request.
+
 To consolidate state created by versions that used `.product-playbook/`, run:
 
 ```bash

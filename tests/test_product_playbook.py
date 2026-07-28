@@ -986,5 +986,362 @@ class StateAndValidationTests(unittest.TestCase):
             self.assertIn("prepopulated-result", codes)
 
 
+class HtmlExportTests(unittest.TestCase):
+    """Opt-in single-file export. Markdown stays the default output.
+
+    PDF conversion needs an external binary (Chrome / wkhtmltopdf / pandoc) that
+    CI cannot guarantee, so PDF-mode is tested only for its no-converter failure
+    path and a converter-gated happy path. HTML-mode is deterministic and fully
+    covered since it is pure standard library.
+    """
+
+    def _two_chapter_plan(self, root: Path) -> Path:
+        plan = root / "plan.json"
+        write(
+            plan,
+            """
+            {
+              "title": "Account Playbook",
+              "purpose": "Validate account and billing journeys.",
+              "actors": ["Tester"],
+              "interfaces": ["Use the supported API client."],
+              "chapters": [
+                {
+                  "title": "Accounts",
+                  "scenarios": [
+                    {
+                      "id": "ACC-01",
+                      "title": "List accounts",
+                      "goal": "List available accounts.",
+                      "who": "Tester",
+                      "steps": ["Send `GET /api/accounts`."],
+                      "expected": ["The response status is `200`."]
+                    }
+                  ]
+                },
+                {
+                  "title": "Billing",
+                  "scenarios": [
+                    {
+                      "id": "BIL-01",
+                      "title": "View invoice",
+                      "goal": "View the current invoice.",
+                      "who": "Tester",
+                      "steps": ["Open the <billing> page for A & B."],
+                      "expected": ["The invoice renders correctly."]
+                    }
+                  ]
+                }
+              ]
+            }
+            """,
+        )
+        return plan
+
+    def test_html_export_produces_self_contained_file_in_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            playbook = root / "playbook"
+            plan = self._two_chapter_plan(root)
+            render = json.loads(
+                run_script("render_playbook.py", str(plan), str(playbook)).stdout
+            )
+            self.assertEqual(render["scenarios"], 2)
+
+            export = json.loads(
+                run_script("export_playbook.py", str(playbook), "--format", "html").stdout
+            )
+            self.assertEqual(export["format"], "html")
+            self.assertTrue(export["intermediate_html_kept"])
+            self.assertEqual(export["chapters"], 2)
+            self.assertEqual(export["scenarios"], 2)
+            self.assertEqual(export["files"], [
+                "README.md",
+                "01-accounts.md",
+                "02-billing.md",
+                "results-template.md",
+            ])
+            html_path = playbook / "playbook.html"
+            self.assertTrue(html_path.is_file())
+            # HTML mode must not produce a PDF.
+            self.assertFalse((playbook / "playbook.pdf").exists())
+            body = html_path.read_text(encoding="utf-8")
+
+            # Inline CSS, no external assets, no scripts.
+            self.assertIn("<style>", body)
+            self.assertNotIn("<script", body)
+            self.assertNotIn(" src=\"", body)
+            # Required content from every section.
+            self.assertIn("Account Playbook", body)
+            self.assertIn("Accounts", body)
+            self.assertIn("Billing", body)
+            self.assertIn("Results", body)
+            self.assertIn("ACC-01", body)
+            # Scenario bodies are wrapped for indentation.
+            self.assertIn('class="scenario-body"', body)
+            # Sections appear in tester-facing order. Assert on section anchors
+            # rather than substrings, because the README cross-references every
+            # scenario ID and the results template in its map and full-pass list.
+            self.assertLess(body.index('id="readme"'), body.index('id="01-accounts"'))
+            self.assertLess(body.index('id="01-accounts"'), body.index('id="02-billing"'))
+            self.assertLess(body.index('id="02-billing"'), body.index('id="results-template"'))
+
+    def test_html_export_excludes_state_and_non_markdown_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            playbook = root / "playbook"
+            plan = self._two_chapter_plan(root)
+            run_script("render_playbook.py", str(plan), str(playbook))
+            write(
+                playbook / ".product-playbook-state.json",
+                """
+                {
+                  "managed_by": "product-playbook",
+                  "scenarios": {"ACC-01": {"sources": [{"path": "secret/evidence.py"}]}}
+                }
+                """,
+            )
+            write(playbook / "notes.txt", "SECRET-LEAK should not appear\n")
+
+            run_script("export_playbook.py", str(playbook), "--format", "html")
+            body = (playbook / "playbook.html").read_text(encoding="utf-8")
+            self.assertNotIn("SECRET-LEAK", body)
+            self.assertNotIn("product-playbook", body)
+            self.assertNotIn("secret/evidence.py", body)
+
+    def test_html_export_escapes_inline_angle_brackets_and_ampersand(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            playbook = root / "playbook"
+            plan = self._two_chapter_plan(root)
+            run_script("render_playbook.py", str(plan), str(playbook))
+            run_script("export_playbook.py", str(playbook), "--format", "html")
+            body = (playbook / "playbook.html").read_text(encoding="utf-8")
+            # The literal <billing> from the step must be escaped, never a raw tag.
+            self.assertIn("&lt;billing&gt;", body)
+            self.assertNotIn("<billing>", body)
+            # The ampersand must be escaped too.
+            self.assertIn("A &amp; B", body)
+
+    def test_html_export_rewrites_internal_links_to_anchors(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            playbook = root / "playbook"
+            plan = self._two_chapter_plan(root)
+            run_script("render_playbook.py", str(plan), str(playbook))
+            run_script("export_playbook.py", str(playbook), "--format", "html")
+            body = (playbook / "playbook.html").read_text(encoding="utf-8")
+            self.assertIn('href="#02-billing"', body)
+            self.assertIn('href="#results-template"', body)
+            self.assertNotIn('href="02-billing.md"', body)
+
+    def test_html_export_refuses_overwrite_without_force(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            playbook = root / "playbook"
+            plan = self._two_chapter_plan(root)
+            run_script("render_playbook.py", str(plan), str(playbook))
+            run_script("export_playbook.py", str(playbook), "--format", "html")
+            html_path = playbook / "playbook.html"
+            first_mtime = html_path.stat().st_mtime_ns
+
+            refused = run_script(
+                "export_playbook.py", str(playbook), "--format", "html", check=False
+            )
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn("already exists", refused.stderr)
+            self.assertEqual(html_path.stat().st_mtime_ns, first_mtime)
+
+            forced = run_script(
+                "export_playbook.py", str(playbook), "--format", "html", "--force"
+            )
+            self.assertEqual(forced.returncode, 0)
+
+    def test_export_fails_when_required_files_are_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            playbook = root / "playbook"
+            playbook.mkdir()
+            write(playbook / "01-lone.md", "# Lone chapter\n")
+            result = run_script(
+                "export_playbook.py", str(playbook), "--format", "html", check=False
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("README.md", result.stderr)
+
+    def test_html_export_counts_only_scenario_headings_not_cross_references(self) -> None:
+        # A loose ID mention in another chapter's prose (e.g. "Continue from
+        # ACC-01") must not inflate the scenario count. Only "## ID: Title"
+        # headings count, matching the renderer and the validator.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            playbook = root / "playbook"
+            playbook.mkdir()
+            write(
+                playbook / "README.md",
+                """
+                # Playbook
+
+                ## Playbook map
+                - [Account](01-account.md)
+                - [Order](02-order.md)
+
+                ## Smoke path
+                Run ACC-01.
+
+                ## Full pass
+                Run ACC-01.
+
+                ## Sign-off
+                Sign off.
+                """,
+            )
+            write(
+                playbook / "01-account.md",
+                """
+                # Account
+
+                ## Scenario list
+                | ID | Scenario | Persona |
+                | --- | --- | --- |
+                | ACC-01 | Sign in | Tester |
+
+                ## ACC-01: Sign in
+
+                **Goal**
+
+                Sign in.
+
+                **Who**
+
+                Tester.
+
+                **Steps**
+
+                1. Open the page.
+
+                **Expected**
+
+                - Dashboard shows.
+
+                ## Chapter checklist
+
+                ```text
+                ACC-01
+                ```
+
+                [Continue](02-order.md)
+                """,
+            )
+            write(
+                playbook / "02-order.md",
+                """
+                # Order
+
+                ## Scenario list
+                | ID | Scenario | Persona |
+                | --- | --- | --- |
+                | ORD-01 | Find order | Tester |
+
+                ## ORD-01: Find order
+
+                **Goal**
+
+                Find the order placed in ACC-01.
+
+                **Who**
+
+                Tester.
+
+                **Steps**
+
+                1. Enter the order from ACC-01.
+
+                **Expected**
+
+                - Order shows.
+
+                ## Chapter checklist
+
+                ```text
+                ORD-01
+                ```
+
+                [Results](results-template.md)
+                """,
+            )
+            write(
+                playbook / "results-template.md",
+                """
+                # Results
+
+                ## Legend
+                Use P, F, B, or N.
+
+                ## Summary
+                Summarize.
+                """,
+            )
+            export = json.loads(
+                run_script("export_playbook.py", str(playbook), "--format", "html").stdout
+            )
+            self.assertEqual(export["scenarios"], 2)
+
+    def test_pdf_export_fails_clearly_when_no_converter_available(self) -> None:
+        # When no PDF converter is installed, --format pdf must fail with a clear
+        # message and must not leave an HTML file behind in the output directory.
+        if _any_pdf_converter_available():
+            self.skipTest("a PDF converter is installed; the no-converter path cannot run")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            playbook = root / "playbook"
+            plan = self._two_chapter_plan(root)
+            run_script("render_playbook.py", str(plan), str(playbook))
+            result = run_script(
+                "export_playbook.py", str(playbook), "--format", "pdf", check=False
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("no PDF converter found", result.stderr)
+            # No intermediate HTML leaked into the playbook directory.
+            self.assertFalse((playbook / "playbook.html").exists())
+            self.assertFalse((playbook / "playbook.pdf").exists())
+
+    def test_pdf_export_produces_pdf_and_removes_intermediate_html(self) -> None:
+        # When a converter is present, --format pdf writes playbook.pdf and the
+        # intermediate HTML is deleted. Skipped in CI without a converter.
+        if not _any_pdf_converter_available():
+            self.skipTest("no PDF converter installed")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            playbook = root / "playbook"
+            plan = self._two_chapter_plan(root)
+            run_script("render_playbook.py", str(plan), str(playbook))
+            export = json.loads(
+                run_script("export_playbook.py", str(playbook), "--format", "pdf").stdout
+            )
+            self.assertEqual(export["format"], "pdf")
+            self.assertFalse(export["intermediate_html_kept"])
+            pdf_path = playbook / "playbook.pdf"
+            self.assertTrue(pdf_path.is_file())
+            self.assertEqual(pdf_path.read_bytes()[:4], b"%PDF")
+            # The intermediate HTML must be gone.
+            self.assertFalse((playbook / "playbook.html").exists())
+
+
+def _any_pdf_converter_available() -> bool:
+    """True when a PDF converter this script can drive is installed."""
+    import shutil as _shutil
+    from pathlib import Path as _Path
+    chrome_candidates = [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    ]
+    if any(_Path(c).is_file() for c in chrome_candidates):
+        return True
+    return any(_shutil.which(n) for n in ("chromium", "chromium-browser", "google-chrome", "chrome", "wkhtmltopdf", "pandoc"))
+
+
 if __name__ == "__main__":
     unittest.main()
