@@ -1,6 +1,6 @@
 # Product Playbook
 
-[![skills.sh](https://skills.sh/b/b-amir/product-playbook)](https://skills.sh/b-amir/product-playbook)
+[![skills.sh](https://img.shields.io/badge/skills.sh-product--playbook-000000)](https://skills.sh/b-amir/product-playbook)
 
 An [Agent Skill](https://agentskills.io/) that turns automated tests, contracts, source code, and docs into **tester-facing manual playbooks**. QA, product owners, support, and operators get step-by-step scenarios they can run through the product UI or supported interface. Evidence ledgers and verification status stay in agent chat or `.product-playbook-state.json`, not in the published Markdown.
 
