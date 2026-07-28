@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="540" viewBox="0 0 1200 540" role="img" aria-labelledby="title desc">
+  <title id="title">Product Playbook pipeline</title>
+  <desc id="desc">Seven-phase workflow from discovery through validation that produces a manual testing playbook.</desc>
+
+  <rect width="1200" height="540" rx="24" fill="#faf8f5"/>
+  <rect x="1.5" y="1.5" width="1197" height="537" rx="22.5" fill="none" stroke="#d6d3d1" stroke-width="1.5"/>
+
+  <text x="56" y="60" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="28" font-weight="700" fill="#1c1917">How it works</text>
+  <text x="56" y="92" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="17" fill="#78716c">A phased pipeline grounded in tests, contracts, and source.</text>
+
+  <!-- Left: vertical phase list -->
+  <g transform="translate(56 130)">
+    <line x1="18" y1="10" x2="18" y2="286" stroke="#d6d3d1" stroke-width="2"/>
+
+    <g>
+      <circle cx="18" cy="16" r="9" fill="#166534"/>
+      <text x="18" y="20" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#ffffff">1</text>
+      <text x="46" y="21" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="600" fill="#1c1917">Discover</text>
+      <text x="168" y="21" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" fill="#78716c">tests, routes, and drafts</text>
+    </g>
+    <g transform="translate(0 42)">
+      <circle cx="18" cy="16" r="9" fill="#ffffff" stroke="#166534" stroke-width="2"/>
+      <text x="18" y="20" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#166534">2</text>
+      <text x="46" y="21" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="600" fill="#1c1917">Inventory</text>
+      <text x="168" y="21" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" fill="#78716c">existing scenarios</text>
+    </g>
+    <g transform="translate(0 84)">
+      <circle cx="18" cy="16" r="9" fill="#ffffff" stroke="#166534" stroke-width="2"/>
+      <text x="18" y="20" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#166534">3</text>
+      <text x="46" y="21" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="600" fill="#1c1917">Analyze</text>
+      <text x="168" y="21" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" fill="#78716c">actions and assertions</text>
+    </g>
+    <g transform="translate(0 126)">
+      <circle cx="18" cy="16" r="9" fill="#ffffff" stroke="#166534" stroke-width="2"/>
+      <text x="18" y="20" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#166534">4</text>
+      <text x="46" y="21" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="600" fill="#1c1917">Plan</text>
+      <text x="168" y="21" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" fill="#78716c">keep, update, or add</text>
+    </g>
+    <g transform="translate(0 168)">
+      <circle cx="18" cy="16" r="9" fill="#ffffff" stroke="#166534" stroke-width="2"/>
+      <text x="18" y="20" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#166534">5</text>
+      <text x="46" y="21" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="600" fill="#1c1917">Generate</text>
+      <text x="168" y="21" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" fill="#78716c">tester-facing steps</text>
+    </g>
+    <g transform="translate(0 210)">
+      <circle cx="18" cy="16" r="9" fill="#ffffff" stroke="#166534" stroke-width="2"/>
+      <text x="18" y="20" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#166534">6</text>
+      <text x="46" y="21" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="600" fill="#1c1917">Verify</text>
+      <text x="168" y="21" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" fill="#78716c">optional live checks</text>
+    </g>
+    <g transform="translate(0 252)">
+      <circle cx="18" cy="16" r="9" fill="#166534"/>
+      <text x="18" y="20" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#ffffff">7</text>
+      <text x="46" y="21" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="600" fill="#1c1917">Validate</text>
+      <text x="168" y="21" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" fill="#78716c">links, structure, and state</text>
+    </g>
+  </g>
+
+  <!-- Right: I/O stack with equal cards and vertical centering -->
+  <g transform="translate(620 130)">
+    <rect width="524" height="88" rx="16" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.5"/>
+    <text x="28" y="34" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" letter-spacing="0.1em" fill="#78716c">INPUT</text>
+    <text x="28" y="62" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" fill="#1c1917">Tests, OpenAPI, source, and docs</text>
+
+    <path d="M 262 100 L 262 122" stroke="#a8a29e" stroke-width="2" stroke-linecap="round"/>
+    <path d="M 256 114 L 262 124 L 268 114" fill="none" stroke="#a8a29e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <g transform="translate(0 134)">
+      <rect width="524" height="88" rx="16" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.5"/>
+      <text x="28" y="34" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" letter-spacing="0.1em" fill="#78716c">AGENT + SKILL</text>
+      <text x="28" y="62" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" fill="#1c1917">Evidence ledger stays in chat or state</text>
+    </g>
+
+    <path d="M 262 234 L 262 256" stroke="#a8a29e" stroke-width="2" stroke-linecap="round"/>
+    <path d="M 256 248 L 262 258 L 268 248" fill="none" stroke="#a8a29e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <g transform="translate(0 268)">
+      <rect width="524" height="88" rx="16" fill="#166534"/>
+      <text x="28" y="34" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" letter-spacing="0.1em" fill="#bbf7d0">OUTPUT</text>
+      <text x="28" y="62" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" fill="#ffffff">Numbered scenarios your team can run</text>
+    </g>
+  </g>
+</svg>
