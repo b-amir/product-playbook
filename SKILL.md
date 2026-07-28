@@ -14,6 +14,8 @@ Keep all portable fingerprints in the single file
 `<output_dir>/.product-playbook-state.json`. Never create a state directory or per-source and
 per-scenario files. Do not persist verification status, authoring timestamps, issues, history, or
 unresolved notes there. Never publish source maps or authoring metadata in tester-facing Markdown.
+The state writer adds `"managed_by": "product-playbook"` so contributors can identify the owning
+tool without storing a machine path or repository-specific URL.
 
 ## Start from the available inputs
 
@@ -24,8 +26,8 @@ SOURCE_ID=PATH_OR_URL
 ```
 
 Use stable, product-neutral source IDs such as `web`, `api`, `mobile`, `docs`, or `contracts`.
-Locations are runtime-only. Store only source IDs, source-relative paths, content hashes, and
-revisions in collaboration state.
+Locations are runtime-only. Store only the portable manager identifier, source IDs,
+source-relative paths, content hashes, and revisions in collaboration state.
 
 Accept:
 

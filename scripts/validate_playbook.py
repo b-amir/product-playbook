@@ -148,6 +148,7 @@ RESULTS_SECTIONS = {
     "sign-off": r"^## .*sign.?off",
 }
 STATE_FILE_NAME = ".product-playbook-state.json"
+STATE_MANAGED_BY = "product-playbook"
 LEGACY_STATE_DIR_NAME = ".product-playbook"
 STATE_VERSION = 3
 
@@ -447,6 +448,14 @@ def validate_state(
         return
     if state.get("schema_version") != STATE_VERSION:
         issue(errors, "invalid-state", "Unsupported state schema version", state_path)
+    managed_by = state.get("managed_by")
+    if managed_by not in {None, STATE_MANAGED_BY}:
+        issue(
+            errors,
+            "invalid-state",
+            f"Unsupported state manager: {managed_by}",
+            state_path,
+        )
     scenarios = state.get("scenarios")
     sources = state.get("sources")
     if not isinstance(scenarios, dict) or not isinstance(sources, dict):

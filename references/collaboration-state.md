@@ -28,6 +28,7 @@ location. Examples include `web`, `api`, `mobile`, `docs`, and `contracts`.
 
 State may contain:
 
+- the portable `"managed_by": "product-playbook"` format identifier;
 - source ID and kind;
 - source-relative evidence paths;
 - content hashes;
@@ -40,6 +41,7 @@ State must not contain:
 - checkout locations;
 - credentials, tokens, access links, or customer data;
 - developer, organization, or machine identifiers;
+- installation paths or repository-specific tool URLs;
 - unresolved claims presented as evidence;
 - verification status, authoring timestamps, issues, or history.
 

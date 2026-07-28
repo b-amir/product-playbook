@@ -16,6 +16,7 @@ from source_utils import SourceSpec, ensure_unique_sources, legacy_specs, parse_
 
 
 STATE_FILE_NAME = ".product-playbook-state.json"
+STATE_MANAGED_BY = "product-playbook"
 LEGACY_STATE_DIR_NAME = ".product-playbook"
 LEGACY_MANIFEST_NAME = "manifest.json"
 STATE_VERSION = 3
@@ -453,6 +454,7 @@ def build_unified_state(
     scenario_state: dict[str, Any],
 ) -> dict[str, Any]:
     core = {
+        "managed_by": STATE_MANAGED_BY,
         "schema_version": STATE_VERSION,
         "draft_digest": draft_inventory["draft_digest"],
         "run_scope": run_scope,

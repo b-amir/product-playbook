@@ -83,7 +83,10 @@ docs/playbook/
 └── .product-playbook-state.json
 ```
 
-The Markdown is tester-facing. The single hidden state file contains portable source-relative fingerprints used to reconcile later contributions. It contains no verification status, issues, authoring timestamps, decisions, or history. Publish only the Markdown files to testers.
+The Markdown is tester-facing. The single hidden state file identifies itself with
+`"managed_by": "product-playbook"` and contains portable source-relative fingerprints used to
+reconcile later contributions. It contains no installation paths, verification status, issues,
+authoring timestamps, decisions, or history. Publish only the Markdown files to testers.
 
 To consolidate state created by versions that used `.product-playbook/`, run:
 

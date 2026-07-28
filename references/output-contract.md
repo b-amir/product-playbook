@@ -45,8 +45,10 @@ source provenance, and change explanations in the current agent chat. Use a temp
 ledger while working, then discard it after portable fingerprints are written.
 
 The `.product-playbook-state.json` file is machine-facing collaboration state, not documentation.
-It may contain only current source-relative fingerprints and scenario body hashes. It must not contain
-verification status, authoring timestamps, issues, notes, decisions, or history.
+It includes the portable `"managed_by": "product-playbook"` format identifier and may otherwise
+contain only current source-relative fingerprints, source metadata, scenario body hashes, and
+digest metadata. It must not contain verification status, authoring timestamps, issues, notes,
+decisions, or history.
 
 When distributing the playbook to testers, distribute only `README.md`, numbered journey chapters,
 quality-sweep chapters, and `results-template.md`. Do not include

@@ -417,6 +417,7 @@ class StateAndValidationTests(unittest.TestCase):
             self.assertTrue(state_report["state_written"])
             state_path = playbook / ".product-playbook-state.json"
             portable_state = json.loads(state_path.read_text(encoding="utf-8"))
+            self.assertEqual(portable_state["managed_by"], "product-playbook")
             scenario_state = portable_state["scenarios"]["ACC-01"]
             self.assertEqual(
                 scenario_state["sources"][0]["path"],
@@ -619,6 +620,7 @@ class StateAndValidationTests(unittest.TestCase):
             self.assertTrue(state_path.is_file())
             state = json.loads(state_path.read_text(encoding="utf-8"))
             self.assertEqual(state["schema_version"], 3)
+            self.assertEqual(state["managed_by"], "product-playbook")
             self.assertNotIn("generated_at", state)
             self.assertNotIn("/old/machine/path", json.dumps(state))
             self.assertEqual(
