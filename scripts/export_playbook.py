@@ -116,39 +116,86 @@ def _escape(text: str) -> str:
 _CODE_SPAN = re.compile(r"`([^`]+)`")
 _BOLD = re.compile(r"\*\*([^*]+?)\*\*")
 _LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+_TASK_PREFIX = re.compile(r"^\[\s?[xX ]\s?\]\s*")
+_SCENARIO_ID_LINE = re.compile(
+    r"^(?:\[\s?[xX ]\s?\]\s*)?([A-Z][A-Z0-9]{1,5}-\d{2,3}\b.*)$"
+)
+
+_FIELD_ONLY = re.compile(r"^\*\*([^*]+)\*\*$")
+_FIELD_KEYS = {
+    "goal": "goal",
+    "who": "who",
+    "steps": "steps",
+    "expected": "expected",
+    "setup": "setup",
+    "cleanup": "cleanup",
+    "note": "note",
+    "notes": "note",
+}
+_FIELD_LABELS = {
+    "goal": "Goal",
+    "who": "Who",
+    "steps": "Steps",
+    "expected": "Expected",
+    "setup": "Setup",
+    "cleanup": "Cleanup",
+    "note": "Note",
+}
 
 
 def _render_inline(text: str) -> str:
+    """Render inline Markdown without corrupting generated tags.
+
+    Earlier versions inserted raw ``<a>`` / ``<strong>`` then escaped the whole
+    string and only partially un-escaped, leaving ``&gt;`` in opening tags so
+    link labels vanished in tables and maps.
+    """
     placeholders: list[str] = []
 
-    def stash_code(match: "re.Match[str]") -> str:
-        placeholders.append(f"<code>{_escape(match.group(1))}</code>")
+    def stash(fragment: str) -> str:
+        placeholders.append(fragment)
         return f"\x00{len(placeholders) - 1}\x00"
 
-    work = _CODE_SPAN.sub(stash_code, text)
-    work = _BOLD.sub(r"<strong>\1</strong>", work)
-
-    def render_link(match: "re.Match[str]") -> str:
-        label = match.group(1)
-        target = match.group(2).strip()
-        if target.endswith(".md") and "/" not in target and "#" not in target:
-            anchor = slugify(Path(target).stem)
-            return f'<a href="#{anchor}">{_escape(label)}</a>'
-        return (
-            f'<a href="{_escape(target)}" target="_blank" '
-            f'rel="noopener noreferrer">{_escape(label)}</a>'
+    def restore(value: str) -> str:
+        return re.sub(
+            r"\x00(\d+)\x00",
+            lambda match: placeholders[int(match.group(1))],
+            value,
         )
 
+    work = _CODE_SPAN.sub(
+        lambda match: stash(f"<code>{_escape(match.group(1))}</code>"),
+        text,
+    )
+
+    def render_link(match: "re.Match[str]") -> str:
+        label_raw = match.group(1)
+        target = match.group(2).strip()
+        label_work = _BOLD.sub(
+            lambda bold: stash(f"<strong>{_escape(bold.group(1))}</strong>"),
+            label_raw,
+        )
+        label_html = restore(_escape(label_work))
+        if target.endswith(".md") and "/" not in target and "#" not in target:
+            href = f"#{slugify(Path(target).stem)}"
+            return stash(f'<a href="{html.escape(href, quote=True)}">{label_html}</a>')
+        safe_target = html.escape(target, quote=True)
+        return stash(f'<a href="{safe_target}">{label_html}</a>')
+
     work = _LINK.sub(render_link, work)
-    work = _escape(work)
-    work = re.sub(
-        r"\x00(\d+)\x00",
-        lambda m: placeholders[int(m.group(1))],
+    work = _BOLD.sub(
+        lambda match: stash(f"<strong>{_escape(match.group(1))}</strong>"),
         work,
     )
-    work = work.replace("&lt;strong&gt;", "<strong>").replace("&lt;/strong&gt;", "</strong>")
-    work = work.replace("&lt;a ", "<a ").replace("&lt;/a&gt;", "</a>")
-    return work
+    return restore(_escape(work))
+
+
+def _table_cell(cell: str, *, header: bool = False) -> str:
+    tag = "th" if header else "td"
+    if not cell.strip():
+        # Empty result / coverage cells are write-in fields, not blank holes.
+        return f'<{tag} class="write-cell"><span class="write-line"></span></{tag}>'
+    return f"<{tag}>{_render_inline(cell)}</{tag}>"
 
 
 def _render_table(rows: list[str]) -> str:
@@ -160,17 +207,71 @@ def _render_table(rows: list[str]) -> str:
         return "".join(f"<p>{_render_inline(row)}</p>" for row in rows)
     header = cells[0]
     out = ["<table>", "<thead><tr>"]
-    out.extend(f"<th>{_render_inline(cell)}</th>" for cell in header)
+    out.extend(_table_cell(cell, header=True) for cell in header)
     out.append("</tr></thead><tbody>")
     body_rows = cells[2:] if (len(cells) > 2 and _TABLE_SEP.match(cells[1][0])) else cells[1:]
     for row in body_rows:
         if all(re.fullmatch(r":?-{2,}:", cell or "-") for cell in row):
             continue
         out.append("<tr>")
-        out.extend(f"<td>{_render_inline(cell)}</td>" for cell in row)
+        out.extend(_table_cell(cell) for cell in row)
         out.append("</tr>")
     out.append("</tbody></table>")
     return "".join(out)
+
+
+def _checklist_item_label(line: str) -> Optional[str]:
+    stripped = line.strip()
+    if not stripped:
+        return None
+    match = _SCENARIO_ID_LINE.match(stripped)
+    if match:
+        return match.group(1).strip()
+    if _TASK_PREFIX.match(stripped):
+        return _TASK_PREFIX.sub("", stripped).strip() or None
+    return None
+
+
+def _looks_like_checklist(lines: list[str]) -> bool:
+    nonempty = [line for line in lines if line.strip()]
+    if not nonempty:
+        return False
+    matched = sum(1 for line in nonempty if _checklist_item_label(line))
+    return matched == len(nonempty)
+
+
+def _render_checklist(lines: list[str]) -> str:
+    items: list[str] = []
+    for line in lines:
+        label = _checklist_item_label(line)
+        if not label:
+            continue
+        items.append(
+            "<li>"
+            '<span class="tick" aria-hidden="true"></span>'
+            f"<span class=\"label\">{_escape(label)}</span>"
+            "</li>"
+        )
+    return '<ul class="checklist">\n' + "\n".join(items) + "\n</ul>"
+
+
+def _render_write_in(rows: int = 4) -> str:
+    rules = "".join('<div class="rule"></div>' for _ in range(max(rows, 2)))
+    return f'<div class="write-in" role="presentation">{rules}</div>'
+
+
+def _render_fence(info: str, code_lines: list[str]) -> str:
+    """Promote playbook write-in / checklist fences; keep real code as code."""
+    if not any(line.strip() for line in code_lines):
+        return _render_write_in(4)
+    if _looks_like_checklist(code_lines):
+        return _render_checklist(code_lines)
+    lang_class = f' class="language-{_escape(info)}"' if info else ""
+    return (
+        f"<pre><code{lang_class}>"
+        f"{_escape(chr(10).join(code_lines))}"
+        "</code></pre>"
+    )
 
 
 def render_markdown(body: str) -> str:
@@ -179,17 +280,41 @@ def render_markdown(body: str) -> str:
     i = 0
     paragraph: list[str] = []
     scenario_open = False
+    # After a lone **Goal** / **Who** label, the next block is the value.
+    pending_field: Optional[str] = None
 
     def flush_paragraph() -> None:
-        if paragraph:
-            out.append(f"<p>{_render_inline(' '.join(paragraph))}</p>")
-            paragraph.clear()
+        nonlocal pending_field
+        if not paragraph:
+            return
+        text = " ".join(paragraph).strip()
+        paragraph.clear()
+        field_match = _FIELD_ONLY.match(text)
+        if field_match:
+            key = _FIELD_KEYS.get(field_match.group(1).strip().lower())
+            if key in ("goal", "who"):
+                # Goal and Who become typed values, not shouted labels.
+                pending_field = key
+                return
+            if key:
+                pending_field = None
+                out.append(f'<p class="field-label">{_FIELD_LABELS[key]}</p>')
+                return
+        css_class = ""
+        if pending_field == "goal":
+            css_class = ' class="scenario-goal"'
+            pending_field = None
+        elif pending_field == "who":
+            css_class = ' class="scenario-who"'
+            pending_field = None
+        out.append(f"<p{css_class}>{_render_inline(text)}</p>")
 
     def close_scenario() -> None:
-        nonlocal scenario_open
+        nonlocal scenario_open, pending_field
         if scenario_open:
             out.append("</div></article>")
             scenario_open = False
+        pending_field = None
 
     while i < len(lines):
         line = lines[i]
@@ -197,6 +322,7 @@ def render_markdown(body: str) -> str:
         fence = _FENCE.match(line)
         if fence:
             flush_paragraph()
+            pending_field = None
             info = fence.group(3).strip()
             code_lines: list[str] = []
             marker = fence.group(2)
@@ -204,8 +330,7 @@ def render_markdown(body: str) -> str:
             while i < len(lines) and marker not in lines[i]:
                 code_lines.append(lines[i])
                 i += 1
-            lang_class = f' class="language-{_escape(info)}"' if info else ""
-            out.append(f"<pre><code{lang_class}>{_escape(chr(10).join(code_lines))}</code></pre>")
+            out.append(_render_fence(info, code_lines))
             i += 1
             continue
 
@@ -214,13 +339,16 @@ def render_markdown(body: str) -> str:
             flush_paragraph()
             level = len(heading.group(1))
             text_body = heading.group(2)
-            # A scenario ("## ID: Title") is a self-contained work unit. Its
-            # following content is wrapped in .scenario-body so CSS can indent the
-            # whole procedure as one level under the scenario heading.
-            if level == 2 and _SCENARIO_HEADING.match(text_body):
+            scenario_match = _SCENARIO_HEADING.match(text_body) if level == 2 else None
+            if scenario_match:
                 close_scenario()
+                scenario_id = scenario_match.group(1)
+                title = text_body[scenario_match.end() :].lstrip(" :")
                 out.append('<article class="scenario">')
-                out.append(f"<h2>{_render_inline(text_body)}</h2>")
+                out.append('<header class="scenario-head">')
+                out.append(f'<p class="scenario-id">{_escape(scenario_id)}</p>')
+                out.append(f"<h2>{_render_inline(title)}</h2>")
+                out.append("</header>")
                 out.append('<div class="scenario-body">')
                 scenario_open = True
             else:
@@ -231,6 +359,7 @@ def render_markdown(body: str) -> str:
 
         if _TABLE_ROW.match(line):
             flush_paragraph()
+            pending_field = None
             table_lines: list[str] = []
             while i < len(lines) and _TABLE_ROW.match(lines[i]):
                 table_lines.append(lines[i])
@@ -242,8 +371,10 @@ def render_markdown(body: str) -> str:
         ordered = _ORDERED.match(line)
         if bullet or ordered:
             flush_paragraph()
+            pending_field = None
             tag = "ul" if bullet else "ol"
-            out.append(f"<{tag}>")
+            list_class = ' class="steps"' if ordered and scenario_open else ""
+            out.append(f"<{tag}{list_class}>")
             while i < len(lines):
                 b = _BULLET.match(lines[i])
                 o = _ORDERED.match(lines[i])
@@ -286,197 +417,339 @@ def _read_title(readme: Path) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# Typography: a deliberately scaled, indented, hierarchical system for a Read surface.
+# Print surface: minimal modern Read document.
+# THESIS: hierarchy from type + whitespace, never costume labels or rails.
+# OWN-WORLD: cool white paper, ink/slate neutrals, one geometric sans.
+# STORY: find ID → read goal → run steps → check expected.
 # --------------------------------------------------------------------------- #
 
 CSS = """
+/*
+  THESIS: A printed procedure — hierarchy by type and space, not shouted labels.
+  OWN-WORLD: Cool white, near-black ink, slate secondary. One sans stack.
+  Refuses: cream+serif editorial, left rails, tracked uppercase field costumes.
+*/
 :root {
-  --ink: #14161a;
-  --soft: #3d424b;
-  --muted: #6b717c;
-  --hairline: #d6d9df;
-  --hairline-soft: #ecedf1;
-  --code-tint: #f3f4f7;
+  --ink: #0e1014;
+  --soft: #2e333c;
+  --muted: #66707d;
+  --hairline: #e2e5ea;
+  --rule: #c5cad3;
+  --code-tint: #f4f5f7;
   --paper: #ffffff;
-  --indent: 28px;
+  --measure: 62ch;
+  --sans: "Avenir Next", "Helvetica Neue", "Segoe UI", sans-serif;
+  --mono: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2.25rem;
+  --space-7: 3.5rem;
 }
 
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--sans);
   color: var(--ink);
   background: var(--paper);
   margin: 0 auto;
-  max-width: 760px;
-  padding: 56px 44px 96px;
-  line-height: 1.62;
-  font-size: 10.5pt;
+  max-width: 42rem;
+  padding: var(--space-7) var(--space-6) 5rem;
+  line-height: 1.55;
+  font-size: 16px;
+  font-weight: 400;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
-/* ---- Type scale: a real ratio (~1.25), distinct weight per role ---- */
 h1, h2, h3, h4, h5, h6 {
-  line-height: 1.22;
+  font-family: var(--sans);
   color: var(--ink);
-  letter-spacing: -0.012em;
+  font-weight: 600;
+  line-height: 1.18;
+  text-wrap: balance;
+  letter-spacing: -0.025em;
 }
 h1 {
-  font-size: 30pt;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 1.12;
-  margin: 0 0 0.4em;
+  font-size: 2.25rem;
+  letter-spacing: -0.035em;
+  margin: 0 0 var(--space-4);
+  max-width: 18ch;
 }
 h2 {
-  font-size: 18pt;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  margin: 2.2em 0 0.5em;
+  font-size: 1.25rem;
+  margin: var(--space-7) 0 var(--space-3);
 }
 h3 {
-  font-size: 13pt;
-  font-weight: 600;
-  margin: 1.8em 0 0.45em;
+  font-size: 1rem;
+  letter-spacing: -0.015em;
+  margin: var(--space-6) 0 var(--space-2);
 }
-h4 {
-  font-size: 11pt;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--soft);
-  margin: 1.5em 0 0.35em;
+h4, h5, h6 {
+  font-size: 0.9375rem;
+  letter-spacing: -0.01em;
+  margin: var(--space-5) 0 var(--space-2);
 }
-h5, h6 { font-size: 10.5pt; font-weight: 600; margin: 1.3em 0 0.35em; }
 
-p { margin: 0 0 0.8em; }
+p {
+  margin: 0 0 var(--space-3);
+  max-width: var(--measure);
+}
 
-/* ---- Lists: ordered steps carry the procedure ---- */
-ul { margin: 0.2em 0 1em; padding-left: 1.25em; }
-ol { margin: 0.3em 0 1.1em; padding-left: 1.55em; }
-li { margin: 0.4em 0; break-inside: avoid; }
-ul > li { margin: 0.26em 0; }
+ul, ol {
+  margin: var(--space-2) 0 var(--space-5);
+  padding-left: 1.2em;
+  max-width: var(--measure);
+}
+li {
+  margin: 0.4em 0;
+  break-inside: avoid;
+}
 li::marker { color: var(--muted); }
-ol > li::marker { font-weight: 700; color: var(--ink); }
+ol > li::marker {
+  font-weight: 600;
+  color: var(--soft);
+  font-variant-numeric: tabular-nums;
+}
 
-strong { font-weight: 680; }
+strong { font-weight: 600; }
 
-/* ---- Scenario: self-contained unit, indented body, never split ---- */
+/* ---- Scenario: airy procedure unit ---- */
 article.scenario {
-  margin-top: 2.4em;
-  padding-top: 1.9em;
+  margin: 0;
+  padding: var(--space-7) 0;
   border-top: 1px solid var(--hairline);
   break-inside: avoid;
   page-break-inside: avoid;
 }
-article.scenario:first-of-type { margin-top: 0.5em; }
-article.scenario > h2 {
-  margin-top: 0;
-  font-size: 14pt;
-  font-weight: 700;
-  letter-spacing: -0.015em;
+article.scenario:first-of-type {
+  border-top: none;
+  padding-top: var(--space-4);
 }
-
-/* Scenario body indented one level: the procedure sits under its heading. */
-.scenario-body {
-  margin-left: var(--indent);
-  margin-top: 0.6em;
-  padding-left: 4px;
-  border-left: 2px solid var(--hairline-soft);
+.scenario-head {
+  margin: 0 0 var(--space-4);
 }
-.scenario-body > p:first-child { margin-top: 0; }
-
-/* A standalone bold label line ("**Goal**" alone in a paragraph) becomes a
-   distinct field label: uppercase, tracked, muted, tight below its value. */
-.scenario-body > p:has(> strong:only-child) {
-  margin: 1.2em 0 0.15em;
-}
-.scenario-body > p > strong:only-child {
-  display: inline-block;
+.scenario-id {
+  margin: 0 0 var(--space-2);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   color: var(--muted);
-  font-weight: 700;
-  font-size: 8pt;
-  text-transform: uppercase;
-  letter-spacing: 0.13em;
+  font-variant-numeric: tabular-nums;
+}
+.scenario-head > h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  max-width: 22ch;
+}
+.scenario-body {
+  margin: 0;
+  max-width: var(--measure);
+}
+.scenario-goal {
+  margin: 0 0 var(--space-3);
+  font-size: 1.0625rem;
+  line-height: 1.5;
+  color: var(--soft);
+  max-width: 36em;
+}
+.scenario-who {
+  margin: 0 0 var(--space-2);
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.scenario-who::before {
+  content: "Who  ";
+  font-weight: 600;
+  color: var(--muted);
+}
+.field-label {
+  margin: var(--space-6) 0 var(--space-3);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
 }
 
-/* ---- Tables: hairlines only ---- */
+/* Steps: hanging tabular numbers, generous rhythm */
+ol.steps {
+  list-style: none;
+  margin: 0 0 var(--space-5);
+  padding: 0;
+  counter-reset: step;
+}
+ol.steps > li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  column-gap: var(--space-3);
+  margin: 0;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--hairline);
+  line-height: 1.45;
+}
+ol.steps > li:last-child { border-bottom: none; }
+ol.steps > li::before {
+  content: counter(step, decimal-leading-zero);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  padding-top: 0.15rem;
+}
+
+.scenario-body > ul {
+  list-style: none;
+  margin: 0 0 var(--space-5);
+  padding: 0;
+}
+.scenario-body > ul > li {
+  position: relative;
+  margin: 0;
+  padding: 0.45rem 0 0.45rem 1.1rem;
+  line-height: 1.45;
+}
+.scenario-body > ul > li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.85em;
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 50%;
+  background: var(--ink);
+}
+
+/* Tables */
 table {
   border-collapse: collapse;
   width: 100%;
-  margin: 1.3em 0 1.7em;
-  font-size: 9.75pt;
+  margin: var(--space-4) 0 var(--space-6);
+  font-size: 0.9375rem;
 }
 thead { break-after: avoid; }
 th, td {
-  border-top: 1px solid var(--hairline);
   border-bottom: 1px solid var(--hairline);
-  padding: 9px 11px;
+  padding: 0.7rem 0.75rem;
   text-align: left;
   vertical-align: top;
 }
 thead th {
-  border-top: none;
-  border-bottom: 1.5px solid var(--ink);
-  font-weight: 700;
-  font-size: 8.75pt;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--soft);
+  border-bottom: 1px solid var(--ink);
+  font-weight: 600;
+  font-size: 0.8125rem;
+  letter-spacing: -0.01em;
+  color: var(--muted);
+  padding-top: 0;
 }
 tr { break-inside: avoid; }
+td:first-child, th:first-child { padding-left: 0; }
+td:last-child, th:last-child { padding-right: 0; }
 
-/* ---- Code: quiet tint ---- */
-code {
-  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 0.9em;
+.write-cell { min-width: 5rem; height: 1.75rem; }
+.write-line {
+  display: block;
+  width: 100%;
+  height: 1.2rem;
+  border-bottom: 1px solid var(--rule);
 }
+
+/* Checklists */
+ul.checklist {
+  list-style: none;
+  margin: var(--space-3) 0 var(--space-6);
+  padding: 0;
+  max-width: var(--measure);
+}
+ul.checklist > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 0.975rem;
+  line-height: 1.35;
+}
+ul.checklist > li:last-child { border-bottom: none; }
+ul.checklist .tick {
+  flex: 0 0 auto;
+  width: 0.9rem;
+  height: 0.9rem;
+  margin-top: 0.15rem;
+  border: 1.5px solid var(--ink);
+  border-radius: 0.15rem;
+}
+ul.checklist .label { flex: 1 1 auto; min-width: 0; }
+
+.write-in { margin: var(--space-3) 0 var(--space-6); }
+.write-in .rule {
+  height: 1.75rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+code { font-family: var(--mono); font-size: 0.875em; }
 :not(pre) > code {
   background: var(--code-tint);
-  padding: 1px 5px;
-  border-radius: 3px;
+  padding: 0.08em 0.35em;
+  border-radius: 0.2rem;
 }
 pre {
   background: var(--code-tint);
-  border-radius: 6px;
-  padding: 13px 15px;
+  border-radius: 0.4rem;
+  padding: 0.95rem 1.05rem;
   overflow-x: auto;
-  line-height: 1.5;
-  font-size: 9.25pt;
+  line-height: 1.45;
+  font-size: 0.875rem;
   break-inside: avoid;
 }
 pre code { background: none; padding: 0; font-size: inherit; }
 
-/* ---- Links ---- */
-a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--hairline); }
+a {
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px solid var(--hairline);
+}
 a:hover { border-bottom-color: var(--ink); }
 
-/* ---- Chapter pagination ---- */
 section.chapter { break-before: page; page-break-before: always; }
 section.chapter:first-of-type { break-before: auto; page-break-before: avoid; }
 
-/* ---- Print hint: screen-only ---- */
 .hint {
-  margin: 0 0 44px;
-  padding: 11px 15px;
-  border-radius: 7px;
-  background: var(--hairline-soft);
+  margin: 0 0 var(--space-6);
   color: var(--muted);
-  font-size: 9pt;
+  font-size: 0.8125rem;
 }
 
 @page {
   size: A4;
-  margin: 20mm 18mm;
-  @bottom-center { content: counter(page); font-size: 8.5pt; color: #9aa0a8; }
+  margin: 16mm 15mm;
+  @bottom-center {
+    content: counter(page);
+    font-family: "Avenir Next", "Helvetica Neue", "Segoe UI", sans-serif;
+    font-size: 8pt;
+    color: #8a93a0;
+  }
 }
 
 @media print {
   .hint { display: none; }
-  body { padding: 0; max-width: none; }
+  body {
+    padding: 0;
+    max-width: none;
+    font-size: 10.5pt;
+  }
   a { border-bottom: none; }
+  .scenario-head > h2 { max-width: none; }
+  h1 { max-width: none; }
 }
 """
 

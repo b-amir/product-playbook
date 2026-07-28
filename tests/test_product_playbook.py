@@ -1079,6 +1079,13 @@ class HtmlExportTests(unittest.TestCase):
             self.assertIn("ACC-01", body)
             # Scenario bodies are wrapped for indentation.
             self.assertIn('class="scenario-body"', body)
+            self.assertIn('class="scenario-id"', body)
+            self.assertIn('class="scenario-goal"', body)
+            self.assertIn('class="field-label"', body)
+            self.assertIn(">Steps<", body)
+            self.assertIn(">Expected<", body)
+            # No shouted uppercase field costume.
+            self.assertNotIn(">GOAL<", body)
             # Sections appear in tester-facing order. Assert on section anchors
             # rather than substrings, because the README cross-references every
             # scenario ID and the results template in its map and full-pass list.
@@ -1134,6 +1141,110 @@ class HtmlExportTests(unittest.TestCase):
             self.assertIn('href="#02-billing"', body)
             self.assertIn('href="#results-template"', body)
             self.assertNotIn('href="02-billing.md"', body)
+            # Opening tags must not be escape-corrupted (that hid link labels).
+            self.assertIn('<a href="#02-billing">', body)
+            self.assertNotIn('href="#02-billing"&gt;', body)
+            # Chapter checklist fences become printable ticks, not code blocks.
+            self.assertIn('class="checklist"', body)
+            self.assertNotIn('language-text', body)
+            # Empty result cells are intentional write-in lines.
+            self.assertIn('class="write-cell"', body)
+            self.assertIn('class="write-line"', body)
+
+    def test_html_export_promotes_checklists_and_write_in_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            playbook = root / "playbook"
+            playbook.mkdir()
+            write(
+                playbook / "README.md",
+                """
+                # Product Playbook
+
+                ## Playbook map
+                | Document | Covers |
+                | --- | --- |
+                | [Getting in](01-getting-in.md) | Login and logout |
+                | [Results template](results-template.md) | Run record |
+
+                ## Sign-off
+                Sign off after completion.
+                """,
+            )
+            write(
+                playbook / "01-getting-in.md",
+                """
+                # Getting in
+
+                ## GI-01: Approved email
+
+                **Goal**
+
+                Request access.
+
+                **Who**
+
+                Tester.
+
+                **Steps**
+
+                1. Submit the form.
+
+                **Expected**
+
+                - Magic link arrives.
+
+                ## Chapter checklist
+
+                ```text
+                [ ] GI-01 Approved email
+                [ ] GI-02 Personal email rejected
+                ```
+
+                ## Final notes
+
+                ```
+
+                ```
+
+                [Results](results-template.md)
+                """,
+            )
+            write(
+                playbook / "results-template.md",
+                """
+                # Results
+
+                ## Browser coverage
+                | Browser | Version | Operating system |
+                | --- | --- | --- |
+                |  |  |  |
+                |  |  |  |
+
+                ## Legend
+                Use P, F, B, or N.
+                """,
+            )
+            run_script("export_playbook.py", str(playbook), "--format", "html")
+            body = (playbook / "playbook.html").read_text(encoding="utf-8")
+
+            # Map document links keep visible labels.
+            self.assertIn('<a href="#01-getting-in">Getting in</a>', body)
+            self.assertIn('<a href="#results-template">Results template</a>', body)
+            self.assertNotIn("&gt;Getting in", body)
+
+            # Checklist fence becomes ticks with labels, not a monospace dump.
+            self.assertIn('class="checklist"', body)
+            self.assertIn("GI-01 Approved email", body)
+            self.assertIn("GI-02 Personal email rejected", body)
+            self.assertNotIn("<pre><code", body)
+
+            # Empty note fence becomes ruled write-in space.
+            self.assertIn('class="write-in"', body)
+            self.assertIn('class="rule"', body)
+
+            # Blank coverage rows keep write-in lines so the table is usable on paper.
+            self.assertGreaterEqual(body.count('class="write-line"'), 3)
 
     def test_html_export_refuses_overwrite_without_force(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
