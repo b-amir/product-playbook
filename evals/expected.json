@@ -1,0 +1,20 @@
+{
+  "output_dir": "evals/fixture-product/docs/playbook",
+  "required_scenario_ids": ["ACC-01"],
+  "required_substrings": ["Create account", "POST /accounts"],
+  "forbidden_substrings": [
+    "## Sources",
+    "VERIFIED",
+    "NEEDS VERIFICATION",
+    "⚠️"
+  ],
+  "required_state": {
+    "managed_by": "product-playbook"
+  },
+  "allowed_playbook_basenames": [
+    "README.md",
+    "results-template.md",
+    ".product-playbook-state.json"
+  ],
+  "allowed_playbook_globs": ["[0-9][0-9]-*.md"]
+}

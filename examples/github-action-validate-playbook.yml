@@ -1,0 +1,52 @@
+# Validate playbook in a product repository
+
+Drop-in workflow for adopting repos. Assumes the playbook lives at `docs/playbook`
+and product sources are available on the runner.
+
+```yaml
+name: Validate product playbook
+
+on:
+  pull_request:
+  push:
+    paths:
+      - "docs/playbook/**"
+      - "services/**"
+      - "apps/**"
+
+permissions:
+  contents: read
+
+jobs:
+  playbook:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pin or vendor the skill, or install via npx skills / git submodule.
+      - name: Checkout product-playbook skill
+        uses: actions/checkout@v4
+        with:
+          repository: b-amir/product-playbook
+          path: .product-playbook-skill
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate Markdown and state
+        run: |
+          python3 .product-playbook-skill/scripts/validate_playbook.py docs/playbook --require-state
+
+      - name: Drift check against accessible sources
+        run: |
+          python3 .product-playbook-skill/scripts/inventory_playbook.py docs/playbook \
+            --source "api=./services/api" \
+            --source "web=./apps/web" \
+            --check-state --drift \
+            --output playbook-drift.json
+        # Exit code 1 means impacted scenarios or changed sources — review the JSON.
+```
+
+Adjust `--source` mappings to match the product. For contribution-only CI, pass
+`--scope` for the sources the job can access and treat preserved OOS as expected.

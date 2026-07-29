@@ -25,16 +25,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def read_plan(path: Path) -> dict[str, Any]:
-    try:
-        plan = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise ValueError(f"could not read plan: {error}") from error
-    if not isinstance(plan, dict):
-        raise ValueError("plan must be a JSON object")
-    chapters = plan.get("chapters")
-    if not isinstance(chapters, list) or not chapters:
-        raise ValueError("plan must contain at least one chapter")
-    return plan
+    from schema_utils import validate_plan_file
+
+    return validate_plan_file(path)
 
 
 def text(value: Any, fallback: str) -> str:

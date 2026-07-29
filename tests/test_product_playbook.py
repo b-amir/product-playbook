@@ -1515,6 +1515,227 @@ class HtmlExportTests(unittest.TestCase):
             self.assertFalse((playbook / "playbook.html").exists())
 
 
+class ProtocolToolingTests(unittest.TestCase):
+    def test_schema_utils_accepts_plan_and_rejects_bad_ledger(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            plan = root / "plan.json"
+            write(
+                plan,
+                """
+                {
+                  "chapters": [
+                    {
+                      "title": "Accounts",
+                      "scenarios": [
+                        {
+                          "id": "ACC-01",
+                          "steps": ["Open Accounts."],
+                          "expected": ["Accounts is visible."]
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """,
+            )
+            ok = json.loads(
+                run_script("schema_utils.py", str(plan), "--kind", "plan").stdout
+            )
+            self.assertTrue(ok["ok"])
+            ledger = root / "ledger.json"
+            write(
+                ledger,
+                """
+                {
+                  "scenarios": {
+                    "ACC-01": {
+                      "status": "SOURCED",
+                      "sources": []
+                    }
+                  }
+                }
+                """,
+            )
+            bad = run_script(
+                "schema_utils.py",
+                str(ledger),
+                "--kind",
+                "ledger",
+                check=False,
+            )
+            self.assertNotEqual(bad.returncode, 0)
+
+    def test_propose_plan_does_not_write_playbook_markdown(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            plan = root / "plan.json"
+            review = root / "review-plan.json"
+            playbook = root / "playbook"
+            write(
+                plan,
+                """
+                {
+                  "chapters": [
+                    {
+                      "title": "Accounts",
+                      "scenarios": [
+                        {
+                          "id": "ACC-01",
+                          "steps": ["Open Accounts."],
+                          "expected": ["Accounts is visible."]
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """,
+            )
+            report = json.loads(
+                run_script("propose_plan.py", str(plan), str(review)).stdout
+            )
+            self.assertTrue(report["propose_only"])
+            self.assertTrue(review.is_file())
+            self.assertFalse(playbook.exists())
+
+    def test_drift_exits_nonzero_when_evidence_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "api"
+            playbook = root / "playbook"
+            make_playbook(playbook)
+            write(
+                source / "tests" / "accounts_test.py",
+                """
+                def test_accounts(client):
+                    assert True
+                """,
+            )
+            ledger = root / "ledger.json"
+            write(
+                ledger,
+                """
+                {
+                  "scenarios": {
+                    "ACC-01": {
+                      "status": "SOURCED",
+                      "sources": [
+                        {"source_id": "api", "path": "tests/accounts_test.py"}
+                      ]
+                    }
+                  }
+                }
+                """,
+            )
+            run_script(
+                "inventory_playbook.py",
+                str(playbook),
+                "--source",
+                f"api={source}",
+                "--evidence-ledger",
+                str(ledger),
+                "--write-state",
+            )
+            write(
+                source / "tests" / "accounts_test.py",
+                """
+                def test_accounts(client):
+                    assert False
+                """,
+            )
+            drifted = run_script(
+                "inventory_playbook.py",
+                str(playbook),
+                "--source",
+                f"api={source}",
+                "--check-state",
+                "--drift",
+                check=False,
+            )
+            self.assertEqual(drifted.returncode, 1)
+            payload = json.loads(drifted.stdout)
+            self.assertTrue(payload["drift_summary"]["drift"])
+            self.assertIn("ACC-01", payload["drift_summary"]["impacted_scenarios"])
+            self.assertIn("changed_paths_by_source", payload["incremental"])
+
+    def test_score_eval_passes_on_rendered_fixture_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            plan = root / "plan.json"
+            playbook = root / "playbook"
+            source = root / "api"
+            write(
+                source / "tests" / "accounts_test.py",
+                "def test_create_account():\n    assert True\n",
+            )
+            write(
+                plan,
+                """
+                {
+                  "title": "Fixture",
+                  "purpose": "Eval.",
+                  "chapters": [
+                    {
+                      "title": "Accounts",
+                      "scenarios": [
+                        {
+                          "id": "ACC-01",
+                          "title": "Create account",
+                          "goal": "Create an account.",
+                          "who": "Tester",
+                          "steps": [
+                            "Send `POST /accounts` with field `name`.",
+                            "Confirm the UI or client shows **Create account** success."
+                          ],
+                          "expected": [
+                            "Response status is `201`.",
+                            "An `id` is returned."
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """,
+            )
+            run_script("render_playbook.py", str(plan), str(playbook))
+            ledger = root / "ledger.json"
+            write(
+                ledger,
+                """
+                {
+                  "scenarios": {
+                    "ACC-01": {
+                      "status": "SOURCED",
+                      "sources": [
+                        {"source_id": "api", "path": "tests/accounts_test.py"}
+                      ]
+                    }
+                  }
+                }
+                """,
+            )
+            run_script(
+                "inventory_playbook.py",
+                str(playbook),
+                "--source",
+                f"api={source}",
+                "--evidence-ledger",
+                str(ledger),
+                "--write-state",
+            )
+            expected = ROOT / "evals" / "expected.json"
+            scored = json.loads(
+                run_script(
+                    "score_eval.py",
+                    str(playbook),
+                    "--expected",
+                    str(expected),
+                ).stdout
+            )
+            self.assertTrue(scored["ok"], scored.get("failures"))
+
+
 def _any_pdf_converter_available() -> bool:
     """True when a PDF converter this script can drive is installed."""
     import shutil as _shutil

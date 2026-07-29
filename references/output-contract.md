@@ -42,6 +42,9 @@ workflow, are not part of the canonical tester-facing bundle, and must not be re
 as a source, or distributed in place of the Markdown. Delete or regenerate them whenever the
 Markdown changes.
 
+Agent-check findings must never appear in this folder. Write them to the sibling directory
+`<playbook-parent>/playbook-findings/` only. See [agent-check.md](agent-check.md).
+
 ## Publication boundary
 
 Publish only finished instructions that a tester needs to operate the product and record a new run.

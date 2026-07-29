@@ -1,4 +1,4 @@
 interface:
   display_name: "Product Playbook"
-  short_description: "Inspect and reconcile tester-facing playbooks"
-  default_prompt: "Use $product-playbook to inspect this workspace, summarize repositories and prior evidence, and ask me to confirm assumptions before editing."
+  short_description: "Inspect, reconcile, and agent-check tester-facing playbooks"
+  default_prompt: "Use $product-playbook. Follow Intake Card + one poll round (prefer structured choices), then Plan, then Write only after approval. Keep the playbook tester-only (Markdown + one state JSON). Put Agent-check findings in sibling playbook-findings/ only when asked."

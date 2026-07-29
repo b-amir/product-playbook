@@ -1,0 +1,32 @@
+openapi: 3.0.3
+info:
+  title: Fixture Accounts API
+  version: "1.0.0"
+paths:
+  /accounts:
+    post:
+      summary: Create account
+      operationId: createAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, name]
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string

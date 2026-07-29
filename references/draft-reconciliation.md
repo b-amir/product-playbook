@@ -113,5 +113,6 @@ Do not save tokens by:
 - Do not delete superseded scenarios until the chat report explains the replacement.
 - Write `.product-playbook-state.json` only after the playbook validates.
 - Never store credentials, access links, customer data, or absolute user-specific paths in state.
-- Keep the published Markdown tester-facing. Put authoring uncertainty only in chat or state.
+- Keep the published Markdown tester-facing. Put authoring uncertainty only in chat or
+  optional sibling `playbook-findings/` files. Never store uncertainty in state.
 - During a contribution, preserve inaccessible scenarios and reject unsupported edits.

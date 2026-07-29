@@ -178,6 +178,14 @@ def parse_args() -> argparse.Namespace:
             f"{STATE_FILE_NAME} and remove the recognized legacy files."
         ),
     )
+    parser.add_argument(
+        "--drift",
+        action="store_true",
+        help=(
+            "With --check-state, exit 1 when impacted scenarios, added/removed IDs, "
+            "or changed sources require attention. Machine-readable report still prints."
+        ),
+    )
     parser.add_argument("--output", help="Write JSON report to this file")
     return parser.parse_args()
 
@@ -304,6 +312,34 @@ def git_metadata(root: Path) -> dict[str, Any]:
         "commit": commit or None,
         "dirty": bool(status),
     }
+
+
+def git_changed_paths(root: Path, since_revision: str | None) -> list[str]:
+    """Return source-relative paths changed since a prior revision (plus dirty files)."""
+    if not (root / ".git").exists():
+        return []
+
+    def run(*args: str) -> list[str]:
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(root), *args],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return []
+        if result.returncode != 0:
+            return []
+        return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+    paths: set[str] = set()
+    if since_revision:
+        paths.update(run("diff", "--name-only", f"{since_revision}..HEAD"))
+    paths.update(run("diff", "--name-only", "HEAD"))
+    paths.update(run("ls-files", "--others", "--exclude-standard"))
+    return sorted(paths)
 
 
 def scenario_blocks(text: str) -> list[dict[str, str]]:
@@ -560,11 +596,9 @@ def load_evidence_ledger(path: str | None) -> dict[str, Any]:
     ledger_path = Path(path).expanduser().resolve()
     if not ledger_path.is_file():
         raise ValueError("evidence ledger is not a file")
-    ledger = read_json(ledger_path)
-    scenarios = ledger.get("scenarios")
-    if not isinstance(scenarios, dict):
-        raise ValueError("evidence ledger must contain a scenarios object")
-    return ledger
+    from schema_utils import validate_ledger_file
+
+    return validate_ledger_file(ledger_path, allow_unresolved=False)
 
 
 def safe_source_reference(
@@ -644,6 +678,12 @@ def structured_compare(
                 scenario["id"] for scenario in draft_inventory["scenarios"]
             ],
             "reusable_scenarios": [],
+            "changed_sources": [],
+            "changed_paths_by_source": {},
+            "preserved_out_of_scope": [],
+            "missing_sources": {},
+            "added_scenarios": [],
+            "removed_scenarios": [],
         }
 
     current_by_id = {
@@ -651,26 +691,33 @@ def structured_compare(
     }
     impacted: set[str] = set()
     changed_sources: set[str] = set()
+    missing_sources: dict[str, list[str]] = {}
+    preserved_out_of_scope: list[str] = []
+    changed_paths_by_source: dict[str, list[str]] = {}
     for source_id, root in roots.items():
         prior = state["sources"].get(source_id, {})
         current_git = git_metadata(root)
+        prior_revision = prior.get("revision")
         if (
-            prior.get("revision")
-            and prior.get("revision") == current_git.get("commit")
+            prior_revision
+            and prior_revision == current_git.get("commit")
             and not prior.get("dirty")
             and not current_git.get("dirty")
         ):
             current = prior.get("fingerprint", {})
+            changed_paths_by_source[source_id] = []
         else:
             current = root_fingerprint(
                 root,
                 draft if draft == root or draft.is_relative_to(root) else None,
             )
+            changed_paths_by_source[source_id] = git_changed_paths(
+                root,
+                str(prior_revision) if prior_revision else None,
+            )
         if prior.get("fingerprint", {}).get("digest") != current.get("digest"):
             changed_sources.add(source_id)
 
-    missing_sources: dict[str, list[str]] = {}
-    preserved_out_of_scope: list[str] = []
     for scenario_id, prior in previous_scenarios.items():
         current = current_by_id.get(scenario_id)
         if current and current["body_hash"] != prior.get("body_hash"):
@@ -704,6 +751,10 @@ def structured_compare(
             manifest.get("draft_digest") != draft_inventory["draft_digest"]
         ),
         "changed_sources": sorted(changed_sources),
+        "changed_paths_by_source": {
+            source_id: paths
+            for source_id, paths in sorted(changed_paths_by_source.items())
+        },
         "impacted_scenarios": sorted(impacted),
         "reusable_scenarios": reusable,
         "preserved_out_of_scope": sorted(set(preserved_out_of_scope)),
@@ -908,6 +959,28 @@ def main() -> int:
     if args.check_state:
         report["incremental"] = structured_compare(report, state, roots_by_id)
 
+    if args.drift and not args.check_state:
+        raise SystemExit("--drift requires --check-state")
+
+    if args.drift:
+        incremental = report.get("incremental") or {}
+        drift_hit = bool(
+            incremental.get("impacted_scenarios")
+            or incremental.get("added_scenarios")
+            or incremental.get("removed_scenarios")
+            or incremental.get("changed_sources")
+            or incremental.get("full_audit_required")
+        )
+        report["drift_summary"] = {
+            "drift": drift_hit,
+            "impacted_scenarios": incremental.get("impacted_scenarios", []),
+            "added_scenarios": incremental.get("added_scenarios", []),
+            "removed_scenarios": incremental.get("removed_scenarios", []),
+            "changed_sources": incremental.get("changed_sources", []),
+            "changed_paths_by_source": incremental.get("changed_paths_by_source", {}),
+            "preserved_out_of_scope": incremental.get("preserved_out_of_scope", []),
+        }
+
     if args.migrate_state:
         try:
             migrated = migrate_legacy_state(draft)
@@ -949,6 +1022,8 @@ def main() -> int:
         Path(args.output).expanduser().write_text(output, encoding="utf-8")
     else:
         print(output, end="")
+    if args.drift:
+        return 1 if report.get("drift_summary", {}).get("drift") else 0
     return 0
 
 

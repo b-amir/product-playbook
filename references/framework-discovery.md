@@ -14,7 +14,12 @@
 10. Contracts and runtime addresses
 11. Unknown frameworks
 12. Mixed and multi-root products
-13. Source priority
+13. Auth, SSO, and identity
+14. Webhooks and async delivery
+15. Feature flags and experiments
+16. Internationalization and locale packs
+17. Accessibility smoke
+18. Source priority
 
 ## Browser frontends
 
@@ -205,6 +210,57 @@ failure evidence make them independently executable.
 
 When only some sources are accessible, bound coverage claims to those sources and preserve
 out-of-scope scenarios.
+
+## Auth, SSO, and identity
+
+When evidence exists, look for:
+
+- OAuth/OIDC, SAML, magic-link, passkey, or session fixtures
+- IdP configuration names visible to testers (not secret values)
+- Role and permission matrices asserted in tests
+- Login, logout, refresh, invite, and account-switch journeys
+
+Publish only steps a tester can perform on a supported interface. Never publish client secrets.
+
+## Webhooks and async delivery
+
+Look for:
+
+- Webhook route tests, signature verification, retry and dead-letter assertions
+- Delivered event payloads and observable downstream side effects
+- Supported ways to trigger or simulate delivery in non-production
+
+Write a scenario only when the tester has a safe trigger and an observable outcome.
+
+## Feature flags and experiments
+
+Look for:
+
+- Flag keys referenced in tests or docs
+- Variants required to reach a journey
+- Environment-owner instructions to enable a disposable flag state
+
+Name flags exactly as evidenced. Do not invent flag keys.
+
+## Internationalization and locale packs
+
+Look for:
+
+- Locale files, i18n test matrices, language switchers
+- Assertions on translated visible strings for a specific locale
+
+When multiple locales are first-class, either scope scenarios to one approved locale or add
+locale-specific expected labels from evidence. Do not invent translations.
+
+## Accessibility smoke
+
+When UI tests or docs assert accessibility, adapt the quality sweep to include:
+
+- Keyboard reachability for primary journeys
+- Visible name / role expectations already asserted in tests
+- Contrast or a11y scanner gates only when the product exposes a supported check
+
+Do not invent WCAG citations the repository does not use.
 
 ## Source priority
 

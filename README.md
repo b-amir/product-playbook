@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/readme/hero.svg" width="100%" alt="Product Playbook turns automated tests and source into evidence-backed manual testing scenarios">
+  <img src="https://raw.githubusercontent.com/b-amir/product-playbook/main/assets/readme/hero.svg" width="100%" alt="Product Playbook turns product evidence into plain steps like sign in and select Continue, with optional Export PDF">
 </p>
 
 <p align="center">
@@ -7,11 +7,11 @@
   <a href="https://agentskills.io/"><img src="https://img.shields.io/badge/Agent%20Skills-compatible-111111" alt="Agent Skills compatible"></a>
   <a href="https://github.com/b-amir/product-playbook/actions/workflows/validate.yml"><img src="https://github.com/b-amir/product-playbook/actions/workflows/validate.yml/badge.svg" alt="Validate skill"></a>
   <img src="https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white" alt="Python 3.9+">
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/b-amir/product-playbook" alt="MIT license"></a>
+  <a href="https://github.com/b-amir/product-playbook/blob/main/LICENSE"><img src="https://img.shields.io/github/license/b-amir/product-playbook" alt="MIT license"></a>
 </p>
 
 <p align="center">
-  <strong>Turn tests, contracts, source, and documentation into manual playbooks your team can run.</strong><br>
+  <strong>Turn tests, contracts, Swagger, docs, and source into a playbook a non-technical tester can run.</strong><br>
   A portable <a href="https://agentskills.io/">Agent Skill</a> for QA, product, support, and operations.
 </p>
 
@@ -21,51 +21,53 @@
 npx skills add b-amir/product-playbook
 ```
 
-Works with agents that load `SKILL.md` skills, including Cursor, Claude Code, Codex, OpenCode, Gemini CLI, and GitHub Copilot via the [`skills` CLI](https://github.com/vercel-labs/skills). Codex also picks up the bundled [`agents/openai.yaml`](agents/openai.yaml) interface hints.
-
 Then ask your agent:
 
 ```text
 Use $product-playbook to inspect this workspace.
 ```
 
-On the first run, the skill reports the local and sanitized remote repository addresses, inferred
-repository roles, contracts, runtime addresses, prior playbook or QA work, and proposed canonical
-output. It asks you to confirm those assumptions and choose audit, edit, creation, or verification
-before it writes anything.
+Works with Cursor, Claude Code, Codex, OpenCode, Gemini CLI, and GitHub Copilot via the [`skills` CLI](https://github.com/vercel-labs/skills). Helpers need Python 3.9+ (stdlib only).
 
-Sources may also be supplied explicitly as local directories or Git repository URLs. Bundled
-helpers need Python 3.9+ and use only the standard library. Full workflow:
-[`SKILL.md`](SKILL.md).
+## What you get
 
 <p align="center">
-  <img src="assets/readme/workflow.svg" width="100%" alt="Product Playbook discovery, analysis, generation, validation, and reconciliation workflow">
+  <img src="https://raw.githubusercontent.com/b-amir/product-playbook/main/assets/readme/workflow.svg" width="100%" alt="Folder tree under docs/ with playbook/ and sibling playbook-findings/">
 </p>
 
-## What it does
+- **`playbook/`** — scenario chapters, results template, and `.product-playbook-state.json`.
+- **`playbook-findings/`** — optional Agent-check notes (drift, defects), kept as a sibling folder.
 
-Product Playbook discovers product journeys from executable evidence and writes tester-facing scenarios with direct steps and observable pass criteria.
+## How a run feels
 
-It supports:
+Every agent follows the same protocol: **Intake → Plan → Write**, then optional Export or Agent-check.
 
-- frontend, API, full-stack, CLI, service, worker, RAG, integration, SDK, helper-library, tooling,
-  data, contract, extension, and mobile products
-- local directories and remote Git repositories
-- monorepos and products split across several repositories
-- playbooks stored inside a source repository or in a separate directory
-- complete reconciliation when every component is accessible
-- scoped contributions when a team can access only part of the product
-- portable evidence state without machine-specific paths
+1. **Intake** — discover product shape, roots, remotes, contracts, and prior playbooks. One confirmation round (structured choices when the agent has them).
+2. **Plan** — Keep / Update / Add table. No Markdown writes until you approve.
+3. **Write** — tester-facing chapters + one `.product-playbook-state.json`.
+4. **Opt-in** — PDF/HTML export, or Agent-check findings in `playbook-findings/`.
 
-## One-command bootstrap
+Full rules: [`SKILL.md`](SKILL.md) · [`references/run-protocol.md`](references/run-protocol.md)
 
-Inspect the current workspace and return structured confirmation questions:
+## What it is for
+
+Any product surface: web, API, CLI, worker, RAG, mobile, SDK, monorepo, or multi-repo. Partial team access is supported — contributors update what they can reach and preserve the rest.
+
+It does **not** invent button labels or endpoints. Claims come from observation, tests, contracts, source, then docs.
+
+## Canonical details
+
+- Testers see finished procedures only — no Sources tables, verification history, or authoring gaps.
+- State holds portable fingerprints for the next reconcile. Nothing else.
+- PDF/HTML are derived on request ([`references/export.md`](references/export.md)).
+
+## Bootstrap (scripts)
 
 ```bash
 python3 scripts/bootstrap_playbook.py
 ```
 
-Inspect explicitly supplied sources:
+Or with explicit sources:
 
 ```bash
 python3 scripts/bootstrap_playbook.py \
@@ -75,94 +77,54 @@ python3 scripts/bootstrap_playbook.py \
   --output-dir "./docs/playbook"
 ```
 
-Bootstrap acquires remote repositories into a controlled workspace, discovers every accessible surface, finds tests and commands, identifies existing drafts, and reports the next action.
-
-It also discovers Git roots and sanitized remotes, linked repositories, documentation and prior
-work, API contracts and cached/generated copies, OpenAPI server addresses, runtime URL and
-environment-variable references, backend API behavior, and scope warnings such as mock or fixture
-repositories.
-
-Add `--source-ref "api=v1.4.2"` to pin a Git branch, tag, or commit for any remote source.
-
-After evidence analysis, render a new playbook deterministically:
+After analysis, render or reconcile:
 
 ```bash
-python3 scripts/render_playbook.py ./evidence-plan.json ./docs/playbook
-```
-
-Existing drafts are reconciled with focused patches instead of being rendered again. See [`references/draft-reconciliation.md`](references/draft-reconciliation.md) and [`references/output-contract.md`](references/output-contract.md).
-
-## Canonical output
-
-```text
-docs/playbook/
-├── README.md
-├── 01-checkout.md
-├── 02-account.md
-├── NN-quality-sweep.md
-├── results-template.md
-└── .product-playbook-state.json
-```
-
-The Markdown is tester-facing. The single hidden state file identifies itself with
-`"managed_by": "product-playbook"` and contains portable source-relative fingerprints used to
-reconcile later contributions. It contains no installation paths, verification status, issues,
-authoring timestamps, decisions, or history. Publish only the Markdown files to testers.
-
-Need a single PDF or HTML file? Ask the agent and it will run
-`scripts/export_playbook.py --format pdf` (default) to write `playbook.pdf`, or
-`--format html` to write a standalone `playbook.html`. Markdown stays the default
-output; these exports are produced only on request.
-
-To consolidate state created by versions that used `.product-playbook/`, run:
-
-```bash
-python3 scripts/inventory_playbook.py ./docs/playbook --migrate-state
-```
-
-## Team contributions
-
-Every team reuses the same canonical output. A scoped run may add or update scenarios supported by its accessible sources, while preserving scenarios and evidence owned by unavailable sources. Details: [`references/collaboration-state.md`](references/collaboration-state.md).
-
-```bash
-python3 scripts/inventory_playbook.py ./docs/playbook \
-  --source "api=./services/api" \
-  --run-scope contribution \
-  --scope api \
-  --check-state \
-  --output ./inventory.json
-```
-
-Capture `state_digest` from `inventory.json`, update the Markdown and internal evidence ledger, then write state:
-
-```bash
+python3 scripts/render_playbook.py ./plan.json ./docs/playbook
 python3 scripts/validate_playbook.py ./docs/playbook
+```
 
+Examples: [`examples.md`](examples.md) · Output contract: [`references/output-contract.md`](references/output-contract.md)
+
+## Contributions, drift, and Agent-check
+
+Scoped inventory when only some sources are available:
+
+```bash
 python3 scripts/inventory_playbook.py ./docs/playbook \
   --source "api=./services/api" \
   --run-scope contribution \
   --scope api \
-  --evidence-ledger ./ledger.json \
-  --base-state-digest "$STATE_DIGEST" \
-  --write-state
-
-python3 scripts/validate_playbook.py ./docs/playbook --require-state
+  --check-state
 ```
 
-The state digest prevents a stale contribution from overwriting newer work. Full reconciliation is required before removing scenarios.
+CI drift (exit `1` when evidence moved):
 
-## Validation
+```bash
+python3 scripts/inventory_playbook.py ./docs/playbook \
+  --source "api=./services/api" \
+  --check-state --drift
+```
+
+Drop-in workflow: [`examples/github-action-validate-playbook.yml`](examples/github-action-validate-playbook.yml).  
+Agent-check rules: [`references/agent-check.md`](references/agent-check.md).  
+Collaboration state: [`references/collaboration-state.md`](references/collaboration-state.md).
+
+## Companions
+
+| Skill | Use when |
+| --- | --- |
+| [`product-playbook-audit`](companions/product-playbook-audit/SKILL.md) | Read-only audit / drift |
+| [`product-playbook-export`](companions/product-playbook-export/SKILL.md) | PDF or HTML only |
+
+## Develop
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
-CI runs the same suite on Python 3.9 and 3.13 via [`.github/workflows/validate.yml`](.github/workflows/validate.yml). Coverage includes mixed surfaces, unfamiliar toolchains, remote acquisition, portable state, and strict output validation.
-
-## Reporting problems
-
-Open an issue at [github.com/b-amir/product-playbook/issues](https://github.com/b-amir/product-playbook/issues). Include the agent and operating system, redact sensitive paths, and attach the relevant helper output.
+Eval fixture: [`evals/`](evals/). Schemas: [`schemas/`](schemas/).
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. Issues: [github.com/b-amir/product-playbook/issues](https://github.com/b-amir/product-playbook/issues).

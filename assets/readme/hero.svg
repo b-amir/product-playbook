@@ -1,72 +1,61 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="460" viewBox="0 0 1200 460" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="440" viewBox="0 0 1200 440" role="img" aria-labelledby="title desc">
   <title id="title">Product Playbook</title>
-  <desc id="desc">Agent Skill that turns automated tests and source into tester-facing playbook scenarios.</desc>
+  <desc id="desc">Turns product evidence into simple manual steps like sign in and select Continue, with optional Export PDF.</desc>
 
   <defs>
-    <clipPath id="cardClip">
-      <rect x="0" y="0" width="520" height="360" rx="18"/>
+    <clipPath id="window">
+      <rect x="0" y="0" width="540" height="340" rx="14"/>
     </clipPath>
   </defs>
 
-  <rect width="1200" height="460" rx="24" fill="#faf8f5"/>
-  <rect x="1.5" y="1.5" width="1197" height="457" rx="22.5" fill="none" stroke="#d6d3d1" stroke-width="1.5"/>
+  <rect width="1200" height="440" rx="20" fill="#ffffff"/>
+  <rect x="1" y="1" width="1198" height="438" rx="19" fill="none" stroke="#e2e5ea" stroke-width="2"/>
 
-  <!-- Left -->
-  <g transform="translate(56 72)">
-    <text font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" letter-spacing="0.14em" fill="#78716c">AGENT SKILL</text>
-    <text y="56" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="48" font-weight="700" fill="#1c1917">Product Playbook</text>
-    <text y="104" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="21" fill="#44403c">Tests and source in.</text>
-    <text y="134" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="21" fill="#44403c">Tester-ready scenarios out.</text>
-    <text y="186" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="17" fill="#78716c">Evidence-backed playbooks for QA,</text>
-    <text y="212" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="17" fill="#78716c">product, support, and ops.</text>
+  <g transform="translate(56 78)">
+    <text font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" letter-spacing="0.16em" fill="#66707d">AGENT SKILL</text>
+    <text y="52" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="44" font-weight="700" fill="#0e1014">Product Playbook</text>
+    <text y="100" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="22" fill="#2e333c">Evidence in.</text>
+    <text y="132" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="22" fill="#2e333c">Plain tester steps out.</text>
+    <text y="184" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="17" fill="#66707d">From tests, docs, and the live product</text>
+    <text y="210" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="17" fill="#66707d">to scenarios anyone on the team can run.</text>
 
-    <g transform="translate(0 276)">
-      <rect width="120" height="46" rx="11" fill="#1c1917"/>
-      <text x="60" y="29" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="#faf8f5">discover</text>
-
-      <path d="M 132 23 L 160 23" stroke="#a8a29e" stroke-width="2" stroke-linecap="round"/>
-      <path d="M 152 17 L 162 23 L 152 29" fill="none" stroke="#a8a29e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-
-      <rect x="174" width="126" height="46" rx="11" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.5"/>
-      <text x="237" y="29" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="#1c1917">reconcile</text>
-
-      <path d="M 312 23 L 340 23" stroke="#a8a29e" stroke-width="2" stroke-linecap="round"/>
-      <path d="M 332 17 L 342 23 L 332 29" fill="none" stroke="#a8a29e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-
-      <rect x="354" width="120" height="46" rx="11" fill="#166534"/>
-      <text x="414" y="29" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="#faf8f5">playbook</text>
+    <g transform="translate(0 258)">
+      <rect width="132" height="44" rx="8" fill="#0e1014"/>
+      <text x="66" y="28" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" fill="#ffffff">discover</text>
+      <path d="M144 22 H170" stroke="#66707d" stroke-width="2" stroke-linecap="round"/>
+      <path d="M162 16 L172 22 L162 28" fill="none" stroke="#66707d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="184" width="148" height="44" rx="8" fill="#0f766e"/>
+      <text x="258" y="28" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" fill="#ffffff">manual playbook</text>
     </g>
   </g>
 
-  <!-- Right playbook specimen: 50px top/bottom outer margin -->
-  <g transform="translate(620 50)">
-    <rect width="520" height="360" rx="18" fill="#ffffff" stroke="#d6d3d1" stroke-width="1.5"/>
-    <g clip-path="url(#cardClip)">
-      <rect width="520" height="56" fill="#f5f5f4"/>
-      <text x="28" y="34" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="#78716c">docs/playbook/</text>
-      <line x1="0" y1="56" x2="520" y2="56" stroke="#e7e5e4"/>
+  <g transform="translate(600 50)">
+    <rect width="540" height="340" rx="14" fill="#ffffff" stroke="#e2e5ea" stroke-width="2"/>
+    <g clip-path="url(#window)">
+      <rect width="540" height="52" fill="#f7f8fa"/>
+      <circle cx="24" cy="26" r="5" fill="#e2e5ea"/>
+      <circle cx="42" cy="26" r="5" fill="#e2e5ea"/>
+      <circle cx="60" cy="26" r="5" fill="#e2e5ea"/>
+      <text x="88" y="31" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" fill="#66707d">01-getting-in.md</text>
+      <rect x="388" y="12" width="132" height="28" rx="7" fill="#eef1f4" stroke="#d5dae0" stroke-width="1.5"/>
+      <text x="454" y="31" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="13" font-weight="600" fill="#2e333c">Export PDF</text>
+      <line x1="0" y1="52" x2="540" y2="52" stroke="#e2e5ea"/>
 
-      <!-- 24 inset, 66 tall rows, 14 gaps: 80 + 66+14 + 66+14 + 66 = 306; bottom pad = 54 -->
-      <g transform="translate(24 80)">
-        <rect width="472" height="66" rx="12" fill="#faf8f5" stroke="#e7e5e4"/>
-        <text x="20" y="28" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" fill="#166534">GI-04</text>
-        <text x="78" y="28" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" font-weight="600" fill="#1c1917">Complete login with a magic link</text>
-        <text x="20" y="50" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="14" fill="#78716c">Pass: home screen opens with an active session</text>
-      </g>
+      <text x="28" y="88" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" fill="#66707d">AUTH-01</text>
+      <text x="28" y="122" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="24" font-weight="600" fill="#0e1014">Sign in with email</text>
+      <text x="28" y="152" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" fill="#66707d">Open the home screen with an active session.</text>
 
-      <g transform="translate(24 160)">
-        <rect width="472" height="66" rx="12" fill="#ffffff" stroke="#e7e5e4"/>
-        <text x="20" y="28" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" fill="#166534">EU-01</text>
-        <text x="78" y="28" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" font-weight="600" fill="#1c1917">Start a chat from the home screen</text>
-        <text x="20" y="50" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="14" fill="#78716c">Pass: composer ready and first reply appears</text>
-      </g>
+      <text x="28" y="192" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" font-weight="600" fill="#0e1014">Steps</text>
+      <text x="28" y="224" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="#66707d">1</text>
+      <text x="52" y="224" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="17" fill="#2e333c">Open the sign-in page.</text>
+      <text x="28" y="256" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="#66707d">2</text>
+      <text x="52" y="256" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="17" fill="#2e333c">Enter the approved test email.</text>
+      <text x="28" y="288" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" fill="#66707d">3</text>
+      <text x="52" y="288" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="17" fill="#2e333c">Select</text>
+      <rect x="112" y="270" width="108" height="28" rx="6" fill="#ecfdf5"/>
+      <text x="166" y="289" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="15" font-weight="700" fill="#0f766e">Continue</text>
 
-      <g transform="translate(24 240)">
-        <rect width="472" height="66" rx="12" fill="#ffffff" stroke="#e7e5e4"/>
-        <text x="20" y="28" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" fill="#166534">AD-04</text>
-        <text x="78" y="28" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" font-weight="600" fill="#1c1917">Roles and Permissions</text>
-        <text x="20" y="50" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="14" fill="#78716c">Pass: matrix matches the saved access profile</text>
-      </g>
+      <text x="28" y="322" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="15" fill="#66707d">Expected: home screen opens signed in.</text>
     </g>
   </g>
 </svg>
