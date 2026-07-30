@@ -222,6 +222,85 @@ def _choice(key: str, label: str, *, recommended: bool = False, needs_text: bool
     return item
 
 
+def build_findings_copy(assumptions: dict[str, Any]) -> dict[str, str]:
+    folders = assumptions.get("folders_and_repos") or []
+    folder_lines = [
+        f"- {folder['name']} → {folder.get('path_or_remote') or '?'} ({folder['what_it_is']})"
+        for folder in folders
+    ]
+    folder_names = ", ".join(folder["name"] for folder in folders) or "none"
+    drafts = assumptions.get("existing_playbook") or []
+    if drafts:
+        playbook = str(
+            drafts[0].get("path")
+            or drafts[0].get("draft_path")
+            or drafts[0].get("output_dir")
+            or drafts[0]
+        )
+    else:
+        playbook = "none"
+    save_location = assumptions.get("suggested_save_location") or "undecided"
+    roles = assumptions.get("product_roles") or []
+    role_text = (
+        ", ".join(
+            sorted(
+                {
+                    item.get("where", "").rsplit("/", 1)[-1] or item.get("why", "role")
+                    for item in roles
+                }
+            )
+        )
+        if roles
+        else "none found"
+    )
+    # Prefer plain role hints when why is clearer than path basename.
+    if roles:
+        role_text = f"{len(roles)} signal(s) in code" if len(roles) > 3 else role_text
+    width = assumptions.get("screens_that_change_by_width") or []
+    width_text = (
+        ", ".join(item.get("where", "") for item in width[:3])
+        if width
+        else "none found"
+    )
+    gates = assumptions.get("permission_checks") or []
+    gate_text = (
+        ", ".join(item.get("where", "") for item in gates[:3])
+        if gates
+        else "none found"
+    )
+    product = (assumptions.get("product") or {}).get("summary") or "unknown"
+
+    chat_lines = [
+        "## What I found",
+        "",
+        f"Product: {product}",
+        "Folders:",
+        *(folder_lines or ["- none"]),
+        f"Existing playbook: {playbook}",
+        f"Save location: {save_location}",
+        f"Product roles: {role_text}",
+        f"Width-sensitive screens: {width_text}",
+        f"Permission checks: {gate_text}",
+        "",
+        assumptions.get("agreement_copy")
+        or "These are working assumptions from the repo, not the final playbook.",
+    ]
+    prompt = (
+        "Do these findings look right?\n"
+        f"Product: {product}\n"
+        f"Folders: {folder_names}\n"
+        f"Playbook: {playbook}\n"
+        f"Save location: {save_location}\n"
+        f"Roles: {role_text}\n"
+        f"Width-sensitive: {width_text}\n"
+        f"Permission checks: {gate_text}"
+    )
+    return {
+        "chat_block": "\n".join(chat_lines),
+        "question_prompt": prompt,
+    }
+
+
 def build_intake(
     discovery: dict[str, Any],
     *,
@@ -229,6 +308,7 @@ def build_intake(
     defaulted_source_to_cwd: bool,
 ) -> dict[str, Any]:
     assumptions = build_working_assumptions(discovery)
+    findings_copy = build_findings_copy(assumptions)
     has_playbook = bool(assumptions["existing_playbook"])
     suggested = assumptions.get("suggested_save_location")
     action_recommended = "A" if has_playbook else "B"
@@ -283,11 +363,11 @@ def build_intake(
         {
             "id": "approve_or_correct_findings",
             "required": True,
-            "prompt": "Does this look right?",
+            "prompt": findings_copy["question_prompt"],
             "selection": "single",
             "choices": [
                 _choice("A", "Yes, continue with these findings", recommended=True),
-                _choice("B", "No, I will correct them in this reply", needs_text=True),
+                _choice("B", "No, I will correct them after submitting", needs_text=True),
             ],
             "recommended": "A",
         },
@@ -385,6 +465,8 @@ def build_intake(
         "defaulted_source_to_current_directory": defaulted_source_to_cwd,
         "requires_user_confirmation": intent == "auto",
         "working_assumptions": assumptions,
+        "findings_chat_block": findings_copy["chat_block"],
+        "findings_question_prompt": findings_copy["question_prompt"],
         "source_role_assumptions": role_assumptions,
         "canonical_output_assumption": {
             "decision": discovery.get("output_decision"),
@@ -406,7 +488,9 @@ def build_intake(
             "free_text_only_when": "needs_text choice is selected",
         },
         "presentation_notes": [
-            "Show What I found first.",
+            "HARD RULE: print findings_chat_block in chat BEFORE opening any poll UI.",
+            "HARD RULE: question 0 prompt must include findings_question_prompt (already filled).",
+            "Never ask 'look right?' with an empty prompt or with findings only promised later.",
             "Prefer harness polls or multi-select when available. Pre-select recommended answers.",
             "If no poll UI exists, show one lettered menu and ask for letters only.",
             f"Show Recommended: {recommended_reply}",

@@ -117,17 +117,27 @@ Do not add **Across viewports** to scenarios without viewport-fork evidence.
 ```text
 ## What I found
 Product: web app + API
-Folders: web, api, docs
+Folders:
+- web → apps/web (web app)
+- api → services/api (API)
+- docs → docs (documentation)
 Existing playbook: docs/playbook
+Save location: docs/playbook
 Product roles: Admin, Member
-Width-sensitive: PermissionGate.tsx
+Width-sensitive screens: PermissionGate.tsx
+Permission checks: requireRole on settings
+
+These are working assumptions from the repo, not the final playbook.
 
 ## Choose (reply with letters only)
 Recommended: A A A A
 
-0. Does this look right?
+0. Do these findings look right?
+   Product: web app + API
+   Folders: web, api, docs
+   Playbook: docs/playbook
    A. Yes, continue with these findings (recommended)
-   B. No, I will correct them in this reply
+   B. No, I will correct them after submitting
 
 1. What should I do?
    A. Update the existing playbook (recommended)
@@ -147,6 +157,8 @@ Recommended: A A A A
 Reply like: A A A A
 Or: recommended
 ```
+
+Print the **What I found** block before opening any poll UI. The first question must repeat the facts.
 
 ## Forbidden in published Markdown
 

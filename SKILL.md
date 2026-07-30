@@ -72,9 +72,14 @@ python3 <skill-dir>/scripts/bootstrap_playbook.py \
 ```
 
 Present the **Intake Card** and **one confirmation round** per
-[references/intake.md](references/intake.md). Lead with **What I found**. Prefer harness
-polls with recommended answers pre-selected. If polls are unavailable, show one lettered
-menu and ask for letters only (`A A A` or `recommended`). Stop until the user answers.
+[references/intake.md](references/intake.md).
+
+Hard rule: print **What I found** (`intake.findings_chat_block`) in chat **before** opening
+any poll UI. Question 0 must use `intake.findings_question_prompt` so the poll card itself
+repeats the findings. Never ask “look right?” with no findings visible.
+
+Prefer harness polls with recommended answers pre-selected. If polls are unavailable, show one
+lettered menu and ask for letters only (`A A A` or `recommended`). Stop until the user answers.
 Never ask the user about digests, fingerprints, or session IDs. Never ask them to write
 sentences when a letter will do.
 

@@ -448,12 +448,19 @@ class DiscoveryTests(unittest.TestCase):
             self.assertTrue(assumptions["folders_and_repos"])
             self.assertTrue(report["intake"]["recommended_reply"])
             self.assertIn("letters only", report["intake"]["reply_hint"].lower())
+            self.assertIn("## What I found", report["intake"]["findings_chat_block"])
+            self.assertIn(
+                "Do these findings look right?",
+                report["intake"]["findings_question_prompt"],
+            )
             first_question = report["intake"]["questions"][0]
+            self.assertIn("Do these findings look right?", first_question["prompt"])
+            self.assertIn("Product:", first_question["prompt"])
             self.assertEqual(first_question["choices"][0]["key"], "A")
             self.assertTrue(first_question["choices"][0]["recommended"])
             self.assertTrue(report["intake"]["ux"]["prefer_structured_polls"])
             self.assertTrue(
-                any("letters only" in note.lower() for note in report["intake"]["presentation_notes"])
+                any("BEFORE opening" in note for note in report["intake"]["presentation_notes"])
             )
             self.assertTrue(
                 any("Never ask" in note for note in report["intake"]["presentation_notes"])

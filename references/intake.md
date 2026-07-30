@@ -4,6 +4,26 @@ One confirmation round after discovery. No writes until the user answers.
 
 Goal: the user should almost never type free text. They pick options.
 
+## Hard rule: show findings before any choice UI
+
+Never ask “Does this look right?” until the user can see **What I found**.
+
+Required order every time:
+
+1. Print the full **What I found** block in the chat message (bullets, not jargon).
+2. Then open polls / AskQuestion / lettered menu.
+3. Question 0 must also include a short findings recap inside the question text,
+   because some harnesses show only the poll card and hide the chat above it.
+
+If the poll UI would appear alone, put the findings in the first question prompt.
+Do not open a choice UI with an empty or generic “look right?” question.
+
+Forbidden:
+
+- Asking question 0 with no findings visible in chat and no findings in the prompt
+- Opening polls first and promising to show findings later
+- Saying “Presenting the Intake Card” without the card contents
+
 ## How to ask (required)
 
 1. Prefer the harness structured choice UI when it exists (polls, multi-select,
@@ -36,7 +56,7 @@ Rules:
 
 ## What I found
 
-Show only what discovery found. Skip empty sections.
+Print this block in chat before any poll. Show only what discovery found. Skip empty sections.
 
 | Section | Plain language |
 | --- | --- |
@@ -50,12 +70,41 @@ Show only what discovery found. Skip empty sections.
 | Related folders | Nested or linked repos we noticed |
 | Caution | Things that look like mocks or generated copies |
 
-Then ask question 0 first:
+Minimum shape:
 
-### 0. Does this look right?
+```text
+## What I found
+
+Product: …
+Folders:
+- name → path (what it is)
+Existing playbook: … or none
+Save location: …
+Product roles: … or none found
+Width-sensitive screens: … or none found
+Permission checks: … or none found
+
+These are working assumptions from the repo, not the final playbook.
+```
+
+Then ask question 0. The question prompt must repeat a short version of the same facts.
+
+### 0. Do these findings look right?
+
+Prompt must include the findings, for example:
+
+```text
+Do these findings look right?
+Product: web app + API
+Folders: web, api, docs
+Playbook: docs/playbook
+Roles: Admin, Member
+```
+
+Choices:
 
 - A. Yes, continue with these findings `(recommended)`
-- B. No, I will correct them in this reply
+- B. No, I will correct them after submitting
 
 If they pick B, they may write short corrections after the letters.
 Do not make them rewrite the whole card.
@@ -107,9 +156,12 @@ When there is no structured UI, render exactly this pattern:
 ## Choose (reply with letters only)
 Recommended: A A A
 
-0. Does this look right?
+0. Do these findings look right?
+   Product: …
+   Folders: …
+   Playbook: …
    A. Yes, continue with these findings (recommended)
-   B. No, I will correct them in this reply
+   B. No, I will correct them after submitting
 
 1. What should I do?
    A. Update the existing playbook (recommended)
@@ -165,6 +217,8 @@ Also pick-only:
 
 ## Anti-patterns
 
+- Asking “look right?” before findings are visible in chat and in the question prompt
+- Opening polls first and promising to show findings later
 - Asking the user to write sentences when a letter would do
 - Hiding the recommended answer
 - Forcing free-text paths when a discovered path exists
@@ -172,3 +226,4 @@ Also pick-only:
 - Writing before answers
 - Surfacing digests, hashes, fingerprints, or session IDs
 - Creating a second playbook for the same product because another repo joined
+- Re-asking Create when Update is clearly the right default

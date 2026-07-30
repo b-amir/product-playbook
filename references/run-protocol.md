@@ -46,12 +46,11 @@ Do not show digests, fingerprints, hashes, or session IDs to the user.
 2. **Folders and repos** — what we will use, and what each one is for
 3. **Existing playbook** — path if one already exists
 4. **Suggested save location** — proposal only until confirmed
-5. **What I found** — working assumptions to approve or correct:
-   - product roles / account types (when found)
-   - screens that may change by width (when found)
-   - permission checks (when found)
-   - related folders and cautions (when found)
+5. **What I found** — print `findings_chat_block` in chat before any choice UI
 6. **Questions** — lettered choices with a recommended reply. See [intake.md](intake.md)
+
+Hard rule: never open polls until the findings block is visible in chat.
+Question 0 must include `findings_question_prompt` so the poll card itself shows the facts.
 
 Ask the user to reply with letters only, like `A A A`, or `recommended`.
 Free text only if they pick a choice that needs it.
