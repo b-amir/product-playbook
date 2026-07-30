@@ -293,9 +293,23 @@ class DiscoveryTests(unittest.TestCase):
             role_paths = {item["where"] for item in assumptions["product_roles"]}
             gate_paths = {item["where"] for item in assumptions["permission_checks"]}
             self.assertTrue(role_paths or gate_paths)
-            self.assertIn("choose_action", {
-                question["id"] for question in report["intake"]["questions"]
-            })
+            labels = {
+                label
+                for item in assumptions["product_roles"]
+                for label in item.get("labels") or []
+            }
+            self.assertTrue({"Admin", "Member"} & labels or role_paths)
+            roles_cell = [
+                line
+                for line in report["intake"]["findings_chat_block"].splitlines()
+                if line.startswith("| Product roles |")
+            ][0]
+            self.assertNotIn("signals in code", roles_cell)
+            self.assertTrue(
+                "Admin" in roles_cell
+                or "Member" in roles_cell
+                or "roles.ts" in roles_cell
+            )
             self.assertFalse(report["intake"]["ux"]["intake_uses_polls"])
             self.assertIn("Correct me if I'm wrong.", report["intake"]["intake_message"])
 
@@ -462,8 +476,16 @@ class DiscoveryTests(unittest.TestCase):
                 ["plan_gate", "after_plan"],
             )
             self.assertIn("| Scope |", report["intake"]["findings_chat_block"])
-            self.assertIn("| Related folders |", report["intake"]["findings_chat_block"])
-            self.assertIn("| Caution |", report["intake"]["findings_chat_block"])
+            self.assertNotIn("| Related folders |", report["intake"]["findings_chat_block"])
+            self.assertNotIn("| Caution |", report["intake"]["findings_chat_block"])
+            self.assertNotIn("linked", report["intake"]["findings_chat_block"].lower())
+            self.assertNotIn("warning(s)", report["intake"]["findings_chat_block"])
+            self.assertIn("### 1. What should I do?", report["intake"]["intake_message"])
+            self.assertIn("- **A.**", report["intake"]["intake_message"])
+            self.assertIn(
+                "Preserve every blank line",
+                " ".join(report["intake"]["presentation_notes"]),
+            )
             self.assertTrue(report["intake"]["intake_fingerprint"])
             self.assertTrue(
                 any("VERBATIM" in note for note in report["intake"]["presentation_notes"])
@@ -483,6 +505,93 @@ class DiscoveryTests(unittest.TestCase):
                 explicit["bootstrap"]["next_action"],
                 "analyze_then_create",
             )
+
+    def test_intake_humanizes_nearby_repos_and_cautions(self) -> None:
+        sys.path.insert(0, str(SCRIPTS))
+        import bootstrap_playbook as bootstrap
+
+        assumptions = {
+            "headline": "What I found",
+            "agreement_copy": "Correct me if I'm wrong.",
+            "product": {"looks_like": ["web"], "summary": "web app"},
+            "folders_and_repos": [
+                {
+                    "name": "product",
+                    "kind": "code",
+                    "what_it_is": "web app",
+                    "path_or_remote": "/tmp/ws",
+                }
+            ],
+            "existing_playbook": [],
+            "suggested_save_location": "/tmp/ws/docs/playbook",
+            "product_roles": [],
+            "screens_that_change_by_width": [],
+            "permission_checks": [],
+            "related_folders": [
+                {
+                    "path": "frontend",
+                    "git_root": "/tmp/ws/frontend",
+                    "assumed_roles": ["frontend"],
+                },
+                {
+                    "path": "unified-docs",
+                    "git_root": "/tmp/ws/unified-docs",
+                    "assumed_roles": ["docs"],
+                },
+            ],
+            "cautions": [
+                {
+                    "path": "README.md",
+                    "kind": "declared-mock-or-fixture",
+                    "message": "mock",
+                }
+            ],
+            "scope": {"sources": [{"name": "product", "path": "/tmp/ws"}]},
+        }
+        block = bootstrap.build_findings_copy(assumptions)["chat_block"]
+        self.assertIn("| Nearby repos (not in Folders yet) |", block)
+        self.assertIn("frontend — web app", block)
+        self.assertIn("unified-docs — documentation", block)
+        self.assertIn("| Mocks / fixtures / generated |", block)
+        self.assertIn("mock/fixture note in README.md", block)
+        self.assertNotIn("2 linked", block)
+        self.assertNotIn("warning(s)", block)
+
+        discovery = {
+            "repositories": [
+                {
+                    "source_id": "product",
+                    "surfaces": ["web"],
+                    "auth_role_candidates": [],
+                    "viewport_fork_candidates": [],
+                    "auth_gate_candidates": [],
+                    "linked_repository_candidates": assumptions["related_folders"],
+                    "scope_warnings": assumptions["cautions"],
+                }
+            ],
+            "source_addresses": [
+                {
+                    "source_id": "product",
+                    "kind": "code",
+                    "local_root": "/tmp/ws",
+                    "root": "/tmp/ws",
+                }
+            ],
+            "existing_playbook_candidates": [],
+            "linked_playbook_candidates": [],
+            "recommended_output_dir": "/tmp/ws/docs/playbook",
+            "output_decision": "default_single_code_repo",
+            "mode_suggestion": "create",
+            "evidence_summary": {},
+            "continuation_suggestion": None,
+        }
+        intake = bootstrap.build_intake(
+            discovery, intent="auto", defaulted_source_to_cwd=False
+        )
+        self.assertIn("### 4.", intake["intake_message"])
+        self.assertIn("### 5.", intake["intake_message"])
+        self.assertIn("- **A.**", intake["intake_message"])
+        self.assertIn("\n\n### 1.", intake["intake_message"])
 
     def test_git_remote_addresses_are_reported_without_credentials(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

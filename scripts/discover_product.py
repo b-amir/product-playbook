@@ -96,6 +96,39 @@ AUTH_ROLE_MARKERS = (
     ("userrole", "user role model"),
     ("rbac", "RBAC usage"),
 )
+AUTH_ROLE_LABEL_PATTERNS = (
+    re.compile(r"\bRole(?:s)?\.([A-Za-z_][A-Za-z0-9_]*)"),
+    re.compile(
+        r"\broles?\s*[:=]\s*['\"]([A-Za-z_][A-Za-z0-9_-]*)['\"]",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:role|roles|permission|permissions)\b[^.\n]{0,40}"
+        r"['\"]([A-Za-z_][A-Za-z0-9_-]*)['\"]",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"['\"](admin|member|viewer|owner|editor|guest|manager|operator|"
+        r"superuser|super_admin|billing|billing_admin|read_only|readonly|"
+        r"contributor|maintainer)['\"]",
+        re.IGNORECASE,
+    ),
+)
+AUTH_ROLE_LABEL_STOPWORDS = {
+    "role",
+    "roles",
+    "user",
+    "users",
+    "type",
+    "name",
+    "id",
+    "true",
+    "false",
+    "null",
+    "none",
+    "string",
+    "number",
+}
 AUTH_GATE_MARKERS = (
     ("require_auth", "auth required"),
     ("requiresauth", "auth required"),
@@ -1181,6 +1214,69 @@ def detect_marker_candidates(
     return candidates
 
 
+def extract_auth_role_labels(content: str) -> list[str]:
+    labels: list[str] = []
+    seen: set[str] = set()
+    for pattern in AUTH_ROLE_LABEL_PATTERNS:
+        for match in pattern.finditer(content):
+            raw = match.group(1).strip()
+            if not raw:
+                continue
+            normalized = re.sub(r"[_-]+", " ", raw).strip()
+            key = normalized.lower()
+            if key in AUTH_ROLE_LABEL_STOPWORDS or len(key) < 2:
+                continue
+            # Prefer Title Case display for constants like ADMIN / Admin.
+            display = normalized if " " in normalized else normalized[:1].upper() + normalized[1:]
+            if key in seen:
+                continue
+            seen.add(key)
+            labels.append(display)
+            if len(labels) >= 12:
+                return labels
+    return labels
+
+
+def detect_auth_role_candidates(
+    files: list[Path],
+    root: Path,
+    max_items: int,
+) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for path in files:
+        if path.suffix.lower() not in SOURCE_SUFFIXES:
+            continue
+        rel = relative(path, root)
+        name_lower = path.name.lower()
+        stem_lower = path.stem.lower()
+        reasons: list[str] = []
+        if any(
+            token in stem_lower or token in name_lower
+            for token in ("role", "roles", "permission", "rbac")
+        ):
+            reasons.append("matching filename")
+        content = read_text(path, limit=120_000)
+        content_lower = content.lower()
+        for marker, reason in AUTH_ROLE_MARKERS:
+            if marker in content_lower and reason not in reasons:
+                reasons.append(reason)
+        labels = extract_auth_role_labels(content)
+        if not reasons and not labels:
+            continue
+        if not reasons and labels:
+            reasons.append("named role literal")
+        candidates.append(
+            {
+                "path": rel,
+                "reason": reasons[0],
+                "labels": labels,
+            }
+        )
+        if len(candidates) >= max_items:
+            break
+    return candidates
+
+
 def detect_project_signals(
     project_text: str,
     files: list[Path],
@@ -1544,12 +1640,10 @@ def discover_component_candidates(
                     component_root,
                     args.max_items,
                 ),
-                "auth_role_candidates": detect_marker_candidates(
+                "auth_role_candidates": detect_auth_role_candidates(
                     component_files,
                     component_root,
                     args.max_items,
-                    markers=AUTH_ROLE_MARKERS,
-                    name_tokens=("role", "roles", "permission", "rbac"),
                 ),
                 "auth_gate_candidates": detect_marker_candidates(
                     component_files,
@@ -1656,12 +1750,10 @@ def discover_repository(
             root,
             args.max_items,
         ),
-        "auth_role_candidates": detect_marker_candidates(
+        "auth_role_candidates": detect_auth_role_candidates(
             files,
             root,
             args.max_items,
-            markers=AUTH_ROLE_MARKERS,
-            name_tokens=("role", "roles", "permission", "rbac"),
         ),
         "auth_gate_candidates": detect_marker_candidates(
             files,

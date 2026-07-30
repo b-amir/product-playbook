@@ -30,15 +30,27 @@ Intake Card (text only, no polls), Plan gate, and End Report — every harness.
   [references/agent-check.md](references/agent-check.md).
 - Never embed org names, people, machine paths, or product-specific assumptions in this skill.
 
-## Task progress (copy each run)
+## Run status (show at the start of each phase)
+
+This is the **workflow position for this chat**, not a product checklist and not
+playbook chapter ticks. Update the marks as you move. Do not invent extra phases.
 
 ```text
-- [ ] 1. Intake (bootstrap; What I found + lettered choices in one chat message; no writes)
-- [ ] 2. Plan (Keep/Update/Add/… table; wait for approval)
-- [ ] 3. Write (patch/render → validate → state → End Report)
-- [ ] 4a. Export PDF/HTML (only if asked)
-- [ ] 4b. Agent-check (only if asked; do everything safely possible)
+Run status (this chat):
+- [x] 1. Intake — done bootstrap; waiting for your letter reply (no files written)
+- [ ] 2. Plan — not started (starts after Intake answers)
+- [ ] 3. Write — not started (starts after you approve the plan)
+- [ ] 4a. Export PDF/HTML — optional; skipped unless you ask
+- [ ] 4b. Agent-check — optional; skipped unless you ask
 ```
+
+Meaning of marks:
+- `[x]` = finished for this run, or currently waiting on you at that step
+- `[ ]` = not started yet, or optional and not requested
+
+After the user answers Intake, flip Plan to in-progress before showing the plan table.
+After Plan approval, flip Write before patching files.
+Leave 4a/4b unchecked unless the user explicitly asks for them.
 
 ## Inputs
 
@@ -78,7 +90,9 @@ Hard rules:
 1. Run `bootstrap_playbook.py` (prefer explicit `--source` / `--docs-source`).
 2. **No polls / AskQuestion for Intake.**
 3. Print `intake.intake_message` **verbatim**. Do not rewrite or invent table rows.
-4. Same sources → same Intake. If two chats disagree, compare the Scope row first.
+4. Preserve every blank line, heading, and list break from that message. Never collapse
+   choices onto one line.
+5. Same sources → same Intake. If two chats disagree, compare the Scope row first.
 
 Polls are allowed later only for Plan approve and after-Plan picks.
 Stop until the user answers with letters or `recommended`.

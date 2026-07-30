@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -114,6 +115,42 @@ def _role_label(roles: list[str]) -> str:
     return ", ".join(friendly.get(role, role) for role in roles)
 
 
+def _display_path(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "?"
+    if re.match(r"^(https?://|git@)", text):
+        return text
+    path = Path(text)
+    parts = path.parts
+    if len(parts) <= 4:
+        return text
+    return str(Path(*parts[-3:]))
+
+
+def _caution_label(item: dict[str, Any]) -> str:
+    kind = str(item.get("kind") or "")
+    path = _display_path(item.get("path"))
+    labels = {
+        "declared-mock-or-fixture": f"mock/fixture note in {path}",
+        "declared-source-unavailable": f"source-unavailable note in {path}",
+        "declared-generated-copy": f"generated-copy note in {path}",
+    }
+    return labels.get(kind, f"scope note in {path}")
+
+
+def _linked_label(item: dict[str, Any]) -> str:
+    path = item.get("path") or item.get("git_root") or item.get("name") or "?"
+    roles = item.get("assumed_roles") or []
+    role_text = _role_label([str(role) for role in roles]) if roles else "related"
+    display = _display_path(path)
+    # Prefer the leaf folder name when the shortened path is still long.
+    leaf = Path(str(path)).name or display
+    if leaf and leaf not in display and len(display) > 48:
+        display = leaf
+    return f"{display} — {role_text}"
+
+
 def build_working_assumptions(discovery: dict[str, Any]) -> dict[str, Any]:
     repository_by_source = {
         repository["source_id"]: repository
@@ -132,10 +169,12 @@ def build_working_assumptions(discovery: dict[str, Any]) -> dict[str, Any]:
                 "name": source_id,
                 "kind": source["kind"],
                 "what_it_is": _role_label(roles),
-                "path_or_remote": source.get("supplied_remote")
-                or source.get("local_root")
-                or source.get("root")
-                or source.get("path"),
+                "path_or_remote": _display_path(
+                    source.get("supplied_remote")
+                    or source.get("local_root")
+                    or source.get("root")
+                    or source.get("path")
+                ),
             }
         )
 
@@ -154,6 +193,11 @@ def build_working_assumptions(discovery: dict[str, Any]) -> dict[str, Any]:
                 {
                     "where": item.get("path", ""),
                     "why": item.get("reason", "role signal"),
+                    "labels": [
+                        str(label).strip()
+                        for label in (item.get("labels") or [])
+                        if str(label).strip()
+                    ],
                     "tester_path": "unknown",
                 }
             )
@@ -176,22 +220,16 @@ def build_working_assumptions(discovery: dict[str, Any]) -> dict[str, Any]:
         *discovery.get("existing_playbook_candidates", []),
         *discovery.get("linked_playbook_candidates", []),
     ]
-    linked = [
-        {
-            "source_id": repository["source_id"],
-            "items": _sample(repository.get("linked_repository_candidates", []), 5),
-        }
-        for repository in discovery.get("repositories", [])
-        if repository.get("linked_repository_candidates")
-    ]
-    cautions = [
-        {
-            "source_id": repository["source_id"],
-            "items": _sample(repository.get("scope_warnings", []), 5),
-        }
-        for repository in discovery.get("repositories", [])
-        if repository.get("scope_warnings")
-    ]
+    linked_items: list[dict[str, Any]] = []
+    for repository in discovery.get("repositories", []):
+        for item in _sample(repository.get("linked_repository_candidates", []), 5):
+            if isinstance(item, dict):
+                linked_items.append(item)
+    caution_items: list[dict[str, Any]] = []
+    for repository in discovery.get("repositories", []):
+        for item in _sample(repository.get("scope_warnings", []), 5):
+            if isinstance(item, dict):
+                caution_items.append(item)
 
     return {
         "headline": "What I found",
@@ -206,8 +244,8 @@ def build_working_assumptions(discovery: dict[str, Any]) -> dict[str, Any]:
         "product_roles": _sample(product_roles, 8),
         "screens_that_change_by_width": _sample(viewport_areas, 8),
         "permission_checks": _sample(permission_checks, 8),
-        "related_folders": linked,
-        "cautions": cautions,
+        "related_folders": linked_items,
+        "cautions": caution_items,
         "scope": {
             "sources": [
                 {
@@ -253,7 +291,7 @@ def build_findings_copy(assumptions: dict[str, Any]) -> dict[str, str]:
     )
     drafts = assumptions.get("existing_playbook") or []
     if drafts:
-        playbook = str(
+        playbook = _display_path(
             drafts[0].get("path")
             or drafts[0].get("draft_path")
             or drafts[0].get("output_dir")
@@ -261,51 +299,82 @@ def build_findings_copy(assumptions: dict[str, Any]) -> dict[str, str]:
         )
     else:
         playbook = "none"
-    save_location = assumptions.get("suggested_save_location") or "undecided"
+    save_location = _display_path(
+        assumptions.get("suggested_save_location") or "undecided"
+    )
     roles = assumptions.get("product_roles") or []
-    if not roles:
-        role_text = "none found"
-    elif len(roles) > 3:
-        role_text = f"{len(roles)} signals in code"
+    role_labels: list[str] = []
+    seen_labels: set[str] = set()
+    for item in roles:
+        for label in item.get("labels") or []:
+            key = str(label).strip().lower()
+            if not key or key in seen_labels:
+                continue
+            seen_labels.add(key)
+            role_labels.append(str(label).strip())
+    if role_labels:
+        if len(role_labels) <= 8:
+            role_text = ", ".join(role_labels)
+        else:
+            shown = ", ".join(role_labels[:8])
+            role_text = f"{shown} (+{len(role_labels) - 8} more)"
+    elif roles:
+        paths = []
+        seen_paths: set[str] = set()
+        for item in roles:
+            path = _display_path(item.get("where"))
+            if not path or path in seen_paths:
+                continue
+            seen_paths.add(path)
+            paths.append(path)
+        if len(paths) <= 5:
+            role_text = ", ".join(paths)
+        else:
+            role_text = f"{', '.join(paths[:5])} (+{len(paths) - 5} more files)"
     else:
-        role_text = ", ".join(
-            sorted(
-                {
-                    item.get("where", "").rsplit("/", 1)[-1] or item.get("why", "role")
-                    for item in roles
-                }
-            )
-        )
+        role_text = "none found"
     width = assumptions.get("screens_that_change_by_width") or []
     width_text = (
-        ", ".join(item.get("where", "") for item in width[:3])
+        ", ".join(_display_path(item.get("where")) for item in width[:3])
         if width
         else "none found"
     )
     gates = assumptions.get("permission_checks") or []
     gate_text = (
-        ", ".join(item.get("where", "") for item in gates[:3])
+        ", ".join(_display_path(item.get("where")) for item in gates[:3])
         if gates
         else "none found"
     )
     related = assumptions.get("related_folders") or []
-    if related:
-        related_text = "; ".join(
-            f"{item.get('source_id')}: {len(item.get('items') or [])} linked"
-            for item in related
-        )
-    else:
-        related_text = "none"
+    related_text = (
+        "; ".join(_linked_label(item) for item in related[:5]) if related else ""
+    )
+    if related and len(related) > 5:
+        related_text = f"{related_text}; +{len(related) - 5} more"
     cautions = assumptions.get("cautions") or []
-    if cautions:
-        caution_text = "; ".join(
-            f"{item.get('source_id')}: {len(item.get('items') or [])} warning(s)"
-            for item in cautions
-        )
-    else:
-        caution_text = "none"
+    caution_text = (
+        "; ".join(_caution_label(item) for item in cautions[:5]) if cautions else ""
+    )
+    if cautions and len(cautions) > 5:
+        caution_text = f"{caution_text}; +{len(cautions) - 5} more"
     product = (assumptions.get("product") or {}).get("summary") or "unknown"
     agreement = assumptions.get("agreement_copy") or "Correct me if I'm wrong."
+
+    rows = [
+        ("Scope", scope_cell),
+        ("Product", product),
+        ("Folders", folder_cell),
+        ("Existing playbook", playbook),
+        ("Save location", save_location),
+        ("Product roles", role_text),
+        ("Width-sensitive screens", width_text),
+        ("Permission checks", gate_text),
+    ]
+    # Omit empty related/caution rows — count-only jargon ("2 linked") is worse than silence.
+    if related_text:
+        rows.append(("Nearby repos (not in Folders yet)", related_text))
+    if caution_text:
+        rows.append(("Mocks / fixtures / generated", caution_text))
 
     chat_block = "\n".join(
         [
@@ -313,16 +382,7 @@ def build_findings_copy(assumptions: dict[str, Any]) -> dict[str, str]:
             "",
             "| Item | Value |",
             "| --- | --- |",
-            f"| Scope | {scope_cell} |",
-            f"| Product | {product} |",
-            f"| Folders | {folder_cell} |",
-            f"| Existing playbook | {playbook} |",
-            f"| Save location | {save_location} |",
-            f"| Product roles | {role_text} |",
-            f"| Width-sensitive screens | {width_text} |",
-            f"| Permission checks | {gate_text} |",
-            f"| Related folders | {related_text} |",
-            f"| Caution | {caution_text} |",
+            *[f"| {label} | {value} |" for label, value in rows],
             "",
             agreement,
         ]
@@ -378,7 +438,7 @@ def build_intake(
         save_choices.append(
             _choice(
                 "B",
-                f"Use the suggested path: {suggested}"
+                f"Use the suggested path: {_display_path(suggested)}"
                 if suggested
                 else "Use the suggested path",
             )
@@ -388,7 +448,7 @@ def build_intake(
         save_choices.append(
             _choice(
                 "A",
-                f"Use the suggested path: {suggested}"
+                f"Use the suggested path: {_display_path(suggested)}"
                 if suggested
                 else "Use the suggested path",
                 recommended=True,
@@ -447,11 +507,11 @@ def build_intake(
             {
                 "id": "include_related_folders",
                 "required": True,
-                "prompt": "Include related folders?",
+                "prompt": "Include the nearby repos listed above?",
                 "selection": "single",
                 "choices": [
                     _choice("A", "Include none", recommended=True),
-                    _choice("B", "Include some", needs_text=True),
+                    _choice("B", "Include some (name them after your letters)", needs_text=True),
                 ],
                 "recommended": "A",
             }
@@ -462,11 +522,15 @@ def build_intake(
             {
                 "id": "handle_cautions",
                 "required": True,
-                "prompt": "Mocks, fixtures, or generated copies?",
+                "prompt": "Include the mocks / fixtures / generated paths listed above?",
                 "selection": "single",
                 "choices": [
                     _choice("A", "Leave them out", recommended=True),
-                    _choice("B", "Include some anyway", needs_text=True),
+                    _choice(
+                        "B",
+                        "Include some anyway (name them after your letters)",
+                        needs_text=True,
+                    ),
                 ],
                 "recommended": "A",
             }
@@ -486,20 +550,26 @@ def build_intake(
     ]
 
     choice_lines = [
-        "## Choose (reply with letters only)",
-        f"Recommended: {recommended_reply}",
+        "## Choose",
+        "",
+        "Reply with letters only.",
+        f"Recommended: `{recommended_reply}`",
         "",
     ]
     for index, question in enumerate(questions, start=1):
-        choice_lines.append(f"{index}. {question['prompt']}")
+        choice_lines.append(f"### {index}. {question['prompt']}")
+        choice_lines.append("")
         for choice in question["choices"]:
-            marker = " (recommended)" if choice.get("recommended") else ""
-            choice_lines.append(f"   {choice['key']}. {choice['label']}{marker}")
+            marker = " ← recommended" if choice.get("recommended") else ""
+            choice_lines.append(f"- **{choice['key']}.** {choice['label']}{marker}")
         choice_lines.append("")
     choice_lines.extend(
         [
-            f"Reply like: {recommended_reply}",
-            "Or: recommended",
+            "---",
+            "",
+            f"Reply like: `{recommended_reply}`",
+            "",
+            "Or just: `recommended`",
         ]
     )
     choices_block = "\n".join(choice_lines)
@@ -545,6 +615,7 @@ def build_intake(
         "presentation_notes": [
             "HARD RULE: Intake uses NO polls and NO AskQuestion widgets.",
             "HARD RULE: Run bootstrap_playbook.py, then print intake.intake_message VERBATIM.",
+            "HARD RULE: Preserve every blank line and heading from intake_message. Do not collapse options onto one line.",
             "Do not paraphrase, trim, reorder, or invent table rows. Same sources → same message.",
             "If two chats disagree, compare Scope rows and --source arguments first.",
             "Polls are allowed later for plan_gate and after_plan only.",

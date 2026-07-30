@@ -5,14 +5,21 @@ Paraphrase only inside the required slots.
 
 ## Phases (mandatory order)
 
+Show **Run status** so the user can see where this chat is. This is not a product
+test checklist. It is the skill workflow for this run.
+
 ```text
-Task progress:
-- [ ] 1. Intake   (discover + confirm; no writes)
-- [ ] 2. Plan     (coverage decisions; no Markdown/state writes)
-- [ ] 3. Write    (Markdown patch/create → validate → state)
-- [ ] 4a. Export      (only if user explicitly asks)
-- [ ] 4b. Agent-check (only if user explicitly asks)
+Run status (this chat):
+- [ ] 1. Intake — discover + confirm findings; no writes; wait for letters
+- [ ] 2. Plan — coverage decisions; no Markdown/state writes; wait for approval
+- [ ] 3. Write — Markdown patch/create → validate → state → End Report
+- [ ] 4a. Export — optional; only if user explicitly asks
+- [ ] 4b. Agent-check — optional; only if user explicitly asks
 ```
+
+Marks mean:
+- `[x]` finished or currently waiting on the user at that step
+- `[ ]` not started, or optional and not requested
 
 Hard stops:
 
@@ -29,7 +36,8 @@ Make answering easy. Prefer picking over typing.
 
 **Intake (What I found):** always one chat message. No polls. No AskQuestion.
 Run bootstrap, then print `intake.intake_message` verbatim (table + disclaimer + lettered
-choices). Do not paraphrase. Same sources → same message.
+choices). Preserve blank lines and headings. Do not collapse options onto one line.
+Do not paraphrase. Same sources → same message.
 
 **Plan gate and after-Plan picks:** prefer harness polls when available. Otherwise use a
 short lettered menu. Mark the recommended answer.

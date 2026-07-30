@@ -27,10 +27,15 @@ Consistency comes from the script, not from the model.
 
 1. Run `bootstrap_playbook.py` with explicit `--source` / `--docs-source` when possible.
 2. Print `intake.intake_message` **verbatim**. Do not rewrite the table. Do not invent rows.
-3. Same sources and same tree → same Intake message.
-4. If two chats disagree, compare the **Scope** row and the sources that were passed in.
+3. Preserve every blank line, `###` heading, and list item. Never collapse choices onto one line.
+4. Same sources and same tree → same Intake message.
+5. If two chats disagree, compare the **Scope** row and the sources that were passed in.
 
 Do not freehand discovery into the table. Agents that paraphrase will drift.
+
+Never show count-only jargon such as `product: 2 linked` or `1 warning(s)`.
+If nearby repos or mocks exist, the script lists real paths. If none exist, those rows
+are omitted entirely.
 
 ## Consistency checklist
 
@@ -39,13 +44,15 @@ Do not freehand discovery into the table. Agents that paraphrase will drift.
 | Different cwd or `--source` roots | Pass the same sources every time |
 | One chat finds `unified-docs`, another only `frontend/` | Include every intended root explicitly |
 | Model rewrote the table | Print `intake_message` verbatim |
+| Model crushed options onto one line | Preserve blank lines and list breaks from the script |
 | Weak auth/viewport false positives | Trust the script markers after bootstrap |
 
 Show Scope in the table so the user can see what was scanned.
 
 ## What I found
 
-The rendered table always includes Scope, Related folders, and Caution (`none` when empty).
+Always include Scope through Permission checks. Add nearby-repo and mock rows **only**
+when the script found concrete paths.
 
 | Section | Plain language |
 | --- | --- |
@@ -54,11 +61,11 @@ The rendered table always includes Scope, Related folders, and Caution (`none` w
 | Folders | What we will use, and what each one is for |
 | Existing playbook | Where a playbook already lives, if any |
 | Save location | Where the playbook would go |
-| Product roles | Account types we think exist |
+| Product roles | Named roles found in code (Admin, Member, …). Never only a count |
 | Width-sensitive screens | Places phone and desktop may differ |
 | Permission checks | Places access may change by role |
-| Related folders | Nested or linked repos we noticed |
-| Caution | Things that look like mocks or generated copies |
+| Nearby repos (not in Folders yet) | Nested/linked repos with paths — omit row when empty |
+| Mocks / fixtures / generated | Concrete warning paths — omit row when empty |
 
 Required chat shape (prefer `intake.intake_message` from bootstrap):
 
@@ -75,32 +82,41 @@ Required chat shape (prefer `intake.intake_message` from bootstrap):
 | Product roles | Admin, Member |
 | Width-sensitive screens | none found |
 | Permission checks | none found |
-| Related folders | none |
-| Caution | none |
 
 Correct me if I'm wrong.
 
-## Choose (reply with letters only)
-Recommended: A A A
+## Choose
 
-1. What should I do?
-   A. Update the existing playbook (recommended)
-   B. Create a new playbook
-   C. Review only (no file changes)
-   D. Run checks against the live product
+Reply with letters only.
+Recommended: `A A A`
 
-2. Which folders should I use?
-   A. All folders listed above (recommended)
-   Z. Add another folder or Git URL
+### 1. What should I do?
 
-3. Where should the playbook live?
-   A. Use the existing playbook path (recommended)
-   B. Use the suggested path: docs/playbook
-   C. Somewhere else
+- **A.** Update the existing playbook ← recommended
+- **B.** Create a new playbook
+- **C.** Review only (no file changes)
+- **D.** Run checks against the live product
 
-Reply like: A A A
-Or: recommended
+### 2. Which folders should I use?
+
+- **A.** All folders listed above ← recommended
+- **Z.** Add another folder or Git URL
+
+### 3. Where should the playbook live?
+
+- **A.** Use the existing playbook path ← recommended
+- **B.** Use the suggested path: docs/playbook
+- **C.** Somewhere else
+
+---
+
+Reply like: `A A A`
+
+Or just: `recommended`
 ```
+
+When nearby repos or mock warnings exist, the script adds those table rows and matching
+questions. Do not invent them by hand.
 
 Do not ask a separate “does this look right?” question. The disclaimer covers that.
 If something in the table is wrong, the user corrects it in the same reply.
@@ -138,12 +154,12 @@ Ask only needed decisions. Mark exactly one recommended choice per single-select
 
 ### Optional (same message, only when needed)
 
-Related folders:
+Nearby repos listed in the table:
 
 - A. Include none `(recommended)`
 - B. Include some `(then list names after your letters)`
 
-Caution items:
+Mocks / fixtures / generated listed in the table:
 
 - A. Leave them out `(recommended)`
 - B. Include some anyway `(then list names after your letters)`
@@ -189,6 +205,8 @@ Mark the recommended answer.
 
 - Using polls / AskQuestion for Intake
 - Paraphrasing or inventing Intake table rows
+- Showing `N linked` / `N warning(s)` instead of real paths
+- Collapsing lettered choices onto one line
 - Asking about findings the user cannot see next to the question
 - Hiding the recommended answer
 - Forcing free-text paths when a discovered path exists

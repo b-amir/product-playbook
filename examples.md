@@ -114,7 +114,7 @@ Do not add **Across viewports** to scenarios without viewport-fork evidence.
 
 ## Intake: What I found (chat only — no polls)
 
-Print `intake.intake_message` from bootstrap verbatim. Example shape:
+Print `intake.intake_message` from bootstrap verbatim. Preserve blank lines. Example shape:
 
 ```markdown
 ## What I found
@@ -129,34 +129,41 @@ Print `intake.intake_message` from bootstrap verbatim. Example shape:
 | Product roles | Admin, Member |
 | Width-sensitive screens | none found |
 | Permission checks | none found |
-| Related folders | none |
-| Caution | none |
 
 Correct me if I'm wrong.
 
-## Choose (reply with letters only)
-Recommended: A A A
+## Choose
 
-1. What should I do?
-   A. Update the existing playbook (recommended)
-   B. Create a new playbook
-   C. Review only (no file changes)
-   D. Run checks against the live product
+Reply with letters only.
+Recommended: `A A A`
 
-2. Which folders should I use?
-   A. All folders listed above (recommended)
-   Z. Add another folder or Git URL
+### 1. What should I do?
 
-3. Where should the playbook live?
-   A. Use the existing playbook path (recommended)
-   B. Use the suggested path: docs/playbook
-   C. Somewhere else
+- **A.** Update the existing playbook ← recommended
+- **B.** Create a new playbook
+- **C.** Review only (no file changes)
+- **D.** Run checks against the live product
 
-Reply like: A A A
-Or: recommended
+### 2. Which folders should I use?
+
+- **A.** All folders listed above ← recommended
+- **Z.** Add another folder or Git URL
+
+### 3. Where should the playbook live?
+
+- **A.** Use the existing playbook path ← recommended
+- **B.** Use the suggested path: docs/playbook
+- **C.** Somewhere else
+
+---
+
+Reply like: `A A A`
+
+Or just: `recommended`
 ```
 
 Do not open a poll UI for this step. Do not rewrite the table by hand.
+Omit nearby-repo and mock rows when empty. Never invent count-only jargon.
 
 ## Forbidden in published Markdown
 

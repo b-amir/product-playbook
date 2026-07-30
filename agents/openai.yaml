@@ -1,4 +1,4 @@
 interface:
   display_name: "Product Playbook"
   short_description: "Inspect, reconcile, and agent-check tester-facing playbooks"
-  default_prompt: "Use $product-playbook. Show What I found as a chat table with Correct me if I'm wrong, then lettered choices in the same message (no polls for Intake). Plan, then Write only after approval. Keep the playbook tester-only (Markdown + one state JSON). Put Agent-check findings in sibling playbook-findings/ only when asked."
+  default_prompt: "Use $product-playbook. Show Run status (workflow position, not a product checklist). Print intake.intake_message verbatim with blank lines preserved (no polls for Intake). Plan, then Write only after approval. Keep the playbook tester-only (Markdown + one state JSON). Put Agent-check findings in sibling playbook-findings/ only when asked."
