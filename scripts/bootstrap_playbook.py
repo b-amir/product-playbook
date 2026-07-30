@@ -307,11 +307,22 @@ def build_findings_copy(assumptions: dict[str, Any]) -> dict[str, str]:
     seen_labels: set[str] = set()
     for item in roles:
         for label in item.get("labels") or []:
-            key = str(label).strip().lower()
-            if not key or key in seen_labels:
+            raw = str(label).strip()
+            if not raw:
                 continue
-            seen_labels.add(key)
-            role_labels.append(str(label).strip())
+            slug = re.sub(r"[_-]+", " ", raw).strip().lower()
+            if not slug or slug in seen_labels:
+                continue
+            seen_labels.add(slug)
+            role_labels.append(raw)
+    # Collapse Admin/Administrator duplicates toward the longer form.
+    lowered = {label.lower(): label for label in role_labels}
+    if "admin" in lowered and "administrator" in lowered:
+        role_labels = [
+            label
+            for label in role_labels
+            if label.lower() != "admin"
+        ]
     if role_labels:
         if len(role_labels) <= 8:
             role_text = ", ".join(role_labels)

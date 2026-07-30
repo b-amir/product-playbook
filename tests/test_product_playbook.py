@@ -313,6 +313,100 @@ class DiscoveryTests(unittest.TestCase):
             self.assertFalse(report["intake"]["ux"]["intake_uses_polls"])
             self.assertIn("Correct me if I'm wrong.", report["intake"]["intake_message"])
 
+    def test_auth_role_extraction_ignores_chat_actions_and_agent_personas(self) -> None:
+        sys.path.insert(0, str(SCRIPTS))
+        import discover_product as discover
+
+        noisy = """
+        export function PermissionGuard({ permission }: { permission: string }) {}
+        const story = { permission: "users:suspend", label: "Suspend user" };
+        makeMessage({ role: "assistant", status: "optimistic", content: "second" });
+        const pack = { role: "Fixer" };
+        role.scout = true;
+        """
+        labels = discover.extract_auth_role_labels(noisy)
+        lowered = {label.lower() for label in labels}
+        for bad in (
+            "suspend",
+            "view",
+            "assistant",
+            "fixer",
+            "scout",
+            "optimistic",
+            "second",
+            "page",
+            "guard",
+        ):
+            self.assertNotIn(bad, lowered)
+
+        clean = """
+        export type RoleTier =
+          | "administrator"
+          | "manager"
+          | "standard_user"
+          | "client"
+          | "prospect"
+          | "external_partner";
+        export enum Role {
+          Admin = 'admin',
+          Member = 'member',
+        }
+        makeUser({ role: role("Administrator", "administrator") });
+        """
+        clean_labels = {label.lower() for label in discover.extract_auth_role_labels(clean)}
+        self.assertTrue({"administrator", "manager", "standard user"} & clean_labels)
+        self.assertIn("member", clean_labels)
+
+        custom = """
+        export enum Role {
+          FleetCaptain = "fleet_captain",
+          DockWorker = "dock_worker",
+        }
+        class Role(str, Enum):
+            NIGHT_AUDITOR = "night_auditor"
+        """
+        custom_labels = {
+            label.lower() for label in discover.extract_auth_role_labels(custom)
+        }
+        self.assertTrue(
+            {"fleet captain", "dock worker", "night auditor"} <= custom_labels
+        )
+
+    def test_auth_role_candidates_skip_automation_noise(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write(root / "package.json", '{ "name": "wrapper" }\n')
+            write(
+                root / "automation" / "tools" / "agent.mjs",
+                """
+                const AGENT_ROLES = { Fixer: 1, Scout: 1, Reviewer: 1 };
+                export function run({ role = "Fixer" }) { return role; }
+                """,
+            )
+            write(
+                root / "src" / "roles.ts",
+                """
+                export type RoleTier = "administrator" | "manager" | "standard_user";
+                """,
+            )
+            report = json.loads(
+                run_script(
+                    "discover_product.py",
+                    "--source",
+                    f"product={root}",
+                ).stdout
+            )
+            repository = report["repositories"][0]
+            labels = {
+                label
+                for item in repository["auth_role_candidates"]
+                for label in item.get("labels") or []
+            }
+            self.assertTrue({"Administrator", "Manager", "Standard User"} & labels)
+            self.assertFalse({"Fixer", "Scout", "Reviewer"} & labels)
+            for item in repository["auth_role_candidates"]:
+                self.assertNotIn("automation/", item["path"])
+
     def test_mixed_repository_keeps_all_surfaces(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -61,7 +61,7 @@ when the script found concrete paths.
 | Folders | What we will use, and what each one is for |
 | Existing playbook | Where a playbook already lives, if any |
 | Save location | Where the playbook would go |
-| Product roles | Named roles found in code (Admin, Member, …). Never only a count |
+| Product roles | Named roles/tiers from enums or seeds (Administrator, Manager, …). Never permission actions, chat roles, or agent-tool personas |
 | Width-sensitive screens | Places phone and desktop may differ |
 | Permission checks | Places access may change by role |
 | Nearby repos (not in Folders yet) | Nested/linked repos with paths — omit row when empty |

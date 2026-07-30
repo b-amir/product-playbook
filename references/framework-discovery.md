@@ -265,6 +265,19 @@ Discovery may list `auth_role_candidates` and `auth_gate_candidates`. Show them 
 working assumptions to approve or correct. A database or enum name is only a candidate until a
 tester has a disposable account or setup path.
 
+Role labels must come from high-confidence evidence only:
+
+- `Role` / `RoleTier` / `Persona` enums, unions, Zod enums, Python `class Role(Enum)`,
+  and OpenAPI role-schema enums — including product-specific names inside those blocks
+- Seed/factory helpers that pair a display name with a tier slug
+- Weak mentions of common SaaS vocabulary (`admin`, `member`, `viewer`, …) only as a
+  fallback; never as the only source of truth for a custom product
+
+Do **not** treat chat message roles (`user` / `assistant`), permission actions (`suspend`,
+`view`), UI nouns (`Page`, `Guard`), or agent-tool personas (`Fixer`, `Scout`) as product roles.
+Skip automation/tooling trees for role naming. When the scan root is a workspace wrapper,
+probe linked product repos for role definitions if the wrapper itself has none.
+
 Publish only steps a tester can perform on a supported interface. Never publish client secrets.
 Never invent roles the user did not confirm.
 

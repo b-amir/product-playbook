@@ -83,37 +83,24 @@ VIEWPORT_FORK_SUFFIXES = SOURCE_SUFFIXES | {
 AUTH_ROLE_MARKERS = (
     ("role.admin", "named role constant"),
     ("role.member", "named role constant"),
-    ("role.user", "named role constant"),
     ("role.viewer", "named role constant"),
     ("roles.admin", "named role constant"),
-    ("'admin'", "role string literal"),
-    ('"admin"', "role string literal"),
-    ("'member'", "role string literal"),
-    ('"member"', "role string literal"),
-    ("'viewer'", "role string literal"),
-    ('"viewer"', "role string literal"),
     ("user_role", "user_role field"),
     ("userrole", "user role model"),
-    ("rbac", "RBAC usage"),
+    ("roletier", "role tier type"),
+    ("role_tier", "role tier field"),
 )
-AUTH_ROLE_LABEL_PATTERNS = (
-    re.compile(r"\bRole(?:s)?\.([A-Za-z_][A-Za-z0-9_]*)"),
-    re.compile(
-        r"\broles?\s*[:=]\s*['\"]([A-Za-z_][A-Za-z0-9_-]*)['\"]",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:role|roles|permission|permissions)\b[^.\n]{0,40}"
-        r"['\"]([A-Za-z_][A-Za-z0-9_-]*)['\"]",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"['\"](admin|member|viewer|owner|editor|guest|manager|operator|"
-        r"superuser|super_admin|billing|billing_admin|read_only|readonly|"
-        r"contributor|maintainer)['\"]",
-        re.IGNORECASE,
-    ),
-)
+# Chat / LLM message roles — never product personas.
+AUTH_CHAT_ROLE_LABELS = {
+    "user",
+    "assistant",
+    "system",
+    "tool",
+    "function",
+    "model",
+    "developer",
+}
+# Permission actions, UI nouns, ORM fields, agent-tool personas — not product roles.
 AUTH_ROLE_LABEL_STOPWORDS = {
     "role",
     "roles",
@@ -128,7 +115,143 @@ AUTH_ROLE_LABEL_STOPWORDS = {
     "none",
     "string",
     "number",
+    "boolean",
+    "page",
+    "acl",
+    "guard",
+    "auth",
+    "permission",
+    "permissions",
+    "module",
+    "action",
+    "suspend",
+    "view",
+    "invite",
+    "share",
+    "approve",
+    "archive",
+    "upload",
+    "export",
+    "edit",
+    "create",
+    "delete",
+    "update",
+    "read",
+    "write",
+    "manage",
+    "access",
+    "status",
+    "content",
+    "createdat",
+    "updatedat",
+    "optimistic",
+    "second",
+    "first",
+    "default",
+    "internal",
+    "external",
+    "active",
+    "inactive",
+    "fixer",
+    "scout",
+    "reviewer",
+    "closer",
+    "writer",
+    "qa",
+    "admin table row action",
 }
+# Weak-pattern hits must be in this vocabulary (slugs). Strong definition blocks may
+# introduce additional labels after stopword filtering.
+AUTH_KNOWN_ROLE_SLUGS = {
+    "admin",
+    "administrator",
+    "member",
+    "viewer",
+    "owner",
+    "editor",
+    "guest",
+    "manager",
+    "operator",
+    "superuser",
+    "super admin",
+    "super_admin",
+    "billing admin",
+    "billing_admin",
+    "read only",
+    "read_only",
+    "readonly",
+    "contributor",
+    "maintainer",
+    "standard user",
+    "standard_user",
+    "client",
+    "prospect",
+    "external partner",
+    "external_partner",
+    "client standard",
+    "client_standard",
+    "k2 internal",
+    "k2_internal",
+}
+AUTH_ROLE_NOISE_PATH_PARTS = {
+    "automation",
+    "node_modules",
+    ".agents",
+    "agents/fixtures",
+}
+# Strong: role / tier definition blocks. Captures enum members and union literals.
+# Product-agnostic: quoted values inside these blocks are kept after stopword
+# filtering, even when they are not in AUTH_KNOWN_ROLE_SLUGS.
+AUTH_ROLE_DEFINITION_PATTERNS = (
+    re.compile(
+        r"\benum\s+Roles?\b[^{]*\{([^}]{0,2000})\}",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    re.compile(
+        r"\bclass\s+Roles?\b[^\n]*\bEnum\b[^{]*\{([^}]{0,2000})\}",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    re.compile(
+        r"\bclass\s+Roles?\b[^\n]*\bEnum\b[^:]*:((?:\n[ \t]+[^\n]+){1,80})",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:export\s+)?type\s+\w*(?:Role|Tier|Persona|Actor)\w*\s*=\s*([^;]{0,1200})",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    re.compile(
+        r"\b(?:RoleTier|UserRole|AccountRole|Roles?|Persona|Actor)\s*=\s*"
+        r"z\.enum\(\[([^\]]{0,1200})\]",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    re.compile(
+        r'["\'](?:RoleTier|UserRole|AccountRole|Roles?|Persona|Actor)["\']\s*:\s*'
+        r'\{[^{}]{0,200}"enum"\s*:\s*\[([^\]]{0,1200})\]',
+        re.IGNORECASE | re.DOTALL,
+    ),
+)
+# Factory / seed display names: role("Administrator", "administrator")
+AUTH_ROLE_FACTORY_PATTERN = re.compile(
+    r"\brole\s*\(\s*['\"]([^'\"]{2,40})['\"]\s*,\s*['\"]([A-Za-z_][A-Za-z0-9_-]*)['\"]",
+    re.IGNORECASE,
+)
+# Weak: only kept when the captured token is in AUTH_KNOWN_ROLE_SLUGS.
+# This list is a precision aid for common SaaS names, not a product allowlist.
+# Custom product roles must come from definition blocks / factories above.
+AUTH_ROLE_WEAK_PATTERNS = (
+    re.compile(r"\bRole(?:s)?\.([A-Za-z_][A-Za-z0-9_]*)"),
+    re.compile(
+        r"\b(?:roleTier|role_tier|userRole|user_role|accountType|account_type)"
+        r"\s*[:=]\s*['\"]([A-Za-z_][A-Za-z0-9_-]*)['\"]",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"['\"](admin|administrator|member|viewer|owner|editor|guest|manager|"
+        r"operator|superuser|super_admin|billing|billing_admin|read_only|readonly|"
+        r"contributor|maintainer|standard_user|client|prospect|external_partner)['\"]",
+        re.IGNORECASE,
+    ),
+)
 AUTH_GATE_MARKERS = (
     ("require_auth", "auth required"),
     ("requiresauth", "auth required"),
@@ -1188,13 +1311,16 @@ def detect_marker_candidates(
     markers: tuple[tuple[str, str], ...],
     name_tokens: tuple[str, ...] = (),
     suffixes: set[str] | None = None,
+    skip_noisy_paths: bool = False,
 ) -> list[dict[str, str]]:
     allowed = suffixes or SOURCE_SUFFIXES
-    candidates: list[dict[str, str]] = []
+    scored: list[tuple[int, dict[str, str]]] = []
     for path in files:
         if path.suffix.lower() not in allowed:
             continue
         rel = relative(path, root)
+        if skip_noisy_paths and _auth_role_path_is_noisy(rel):
+            continue
         name_lower = path.name.lower()
         stem_lower = path.stem.lower()
         reasons: list[str] = []
@@ -1208,33 +1334,111 @@ def detect_marker_candidates(
                 reasons.append(reason)
         if not reasons:
             continue
-        candidates.append({"path": rel, "reason": reasons[0]})
-        if len(candidates) >= max_items:
-            break
-    return candidates
+        score = 10
+        if any(token in rel.lower() for token in ("/auth", "/roles", "permission")):
+            score += 40
+        if reasons[0] == "matching filename":
+            score += 10
+        scored.append((score, {"path": rel, "reason": reasons[0]}))
+    scored.sort(key=lambda item: (-item[0], item[1]["path"]))
+    return [item for _, item in scored[:max_items]]
+
+
+def _auth_role_slug(raw: str) -> str:
+    return re.sub(r"[_-]+", " ", raw).strip().lower()
+
+
+def _auth_role_display(raw: str) -> str:
+    normalized = re.sub(r"[_-]+", " ", raw).strip()
+    if not normalized:
+        return ""
+    if " " in normalized or normalized != normalized.lower():
+        # Preserve intentional Title Case / multi-word names.
+        if any(ch.isupper() for ch in normalized[1:]):
+            return normalized
+        return " ".join(part[:1].upper() + part[1:] for part in normalized.split())
+    return normalized[:1].upper() + normalized[1:]
+
+
+def _auth_role_acceptable(raw: str, *, require_known: bool) -> bool:
+    slug = _auth_role_slug(raw)
+    if not slug or len(slug) < 2:
+        return False
+    if slug in AUTH_CHAT_ROLE_LABELS or slug in AUTH_ROLE_LABEL_STOPWORDS:
+        return False
+    if require_known and slug not in AUTH_KNOWN_ROLE_SLUGS:
+        return False
+    return True
+
+
+def _collect_auth_role_label(
+    labels: list[str],
+    seen: set[str],
+    raw: str,
+    *,
+    require_known: bool,
+) -> None:
+    if not _auth_role_acceptable(raw, require_known=require_known):
+        return
+    slug = _auth_role_slug(raw)
+    if slug in seen:
+        return
+    seen.add(slug)
+    labels.append(_auth_role_display(raw))
+
+
+def _labels_from_definition_block(block: str) -> list[str]:
+    found: list[str] = []
+    seen: set[str] = set()
+    for match in re.finditer(r"['\"]([A-Za-z_][A-Za-z0-9_ -]{1,40})['\"]", block):
+        _collect_auth_role_label(
+            found, seen, match.group(1), require_known=False
+        )
+    for match in re.finditer(
+        r"\b([A-Z][A-Za-z0-9]+)\s*(?:=|,|}|\n)",
+        block,
+    ):
+        _collect_auth_role_label(
+            found, seen, match.group(1), require_known=True
+        )
+    return found
 
 
 def extract_auth_role_labels(content: str) -> list[str]:
     labels: list[str] = []
     seen: set[str] = set()
-    for pattern in AUTH_ROLE_LABEL_PATTERNS:
+
+    for pattern in AUTH_ROLE_DEFINITION_PATTERNS:
         for match in pattern.finditer(content):
-            raw = match.group(1).strip()
-            if not raw:
-                continue
-            normalized = re.sub(r"[_-]+", " ", raw).strip()
-            key = normalized.lower()
-            if key in AUTH_ROLE_LABEL_STOPWORDS or len(key) < 2:
-                continue
-            # Prefer Title Case display for constants like ADMIN / Admin.
-            display = normalized if " " in normalized else normalized[:1].upper() + normalized[1:]
-            if key in seen:
-                continue
-            seen.add(key)
-            labels.append(display)
+            for label in _labels_from_definition_block(match.group(1)):
+                slug = _auth_role_slug(label)
+                if slug in seen:
+                    continue
+                seen.add(slug)
+                labels.append(label)
+                if len(labels) >= 12:
+                    return labels
+
+    for match in AUTH_ROLE_FACTORY_PATTERN.finditer(content):
+        display_name, tier = match.group(1), match.group(2)
+        _collect_auth_role_label(labels, seen, display_name, require_known=False)
+        _collect_auth_role_label(labels, seen, tier, require_known=True)
+        if len(labels) >= 12:
+            return labels
+
+    for pattern in AUTH_ROLE_WEAK_PATTERNS:
+        for match in pattern.finditer(content):
+            _collect_auth_role_label(
+                labels, seen, match.group(1), require_known=True
+            )
             if len(labels) >= 12:
                 return labels
     return labels
+
+
+def _auth_role_path_is_noisy(rel: str) -> bool:
+    lowered = rel.replace("\\", "/").lower()
+    return any(part in lowered for part in AUTH_ROLE_NOISE_PATH_PARTS)
 
 
 def detect_auth_role_candidates(
@@ -1242,18 +1446,26 @@ def detect_auth_role_candidates(
     root: Path,
     max_items: int,
 ) -> list[dict[str, Any]]:
-    candidates: list[dict[str, Any]] = []
+    scored: list[tuple[int, dict[str, Any]]] = []
     for path in files:
-        if path.suffix.lower() not in SOURCE_SUFFIXES:
+        suffix = path.suffix.lower()
+        is_contract_json = suffix == ".json" and any(
+            token in path.name.lower()
+            for token in ("openapi", "swagger", "schema", "api")
+        )
+        if suffix not in SOURCE_SUFFIXES and not is_contract_json:
             continue
         rel = relative(path, root)
+        if _auth_role_path_is_noisy(rel):
+            continue
         name_lower = path.name.lower()
         stem_lower = path.stem.lower()
         reasons: list[str] = []
-        if any(
+        filename_hit = any(
             token in stem_lower or token in name_lower
-            for token in ("role", "roles", "permission", "rbac")
-        ):
+            for token in ("role", "roles", "permission", "rbac", "tier")
+        )
+        if filename_hit:
             reasons.append("matching filename")
         content = read_text(path, limit=120_000)
         content_lower = content.lower()
@@ -1261,20 +1473,112 @@ def detect_auth_role_candidates(
             if marker in content_lower and reason not in reasons:
                 reasons.append(reason)
         labels = extract_auth_role_labels(content)
-        if not reasons and not labels:
+        if not labels:
+            # Filename / weak marker alone is not enough — that produced
+            # Suspend/View/Assistant/Fixer noise without real personas.
             continue
-        if not reasons and labels:
-            reasons.append("named role literal")
-        candidates.append(
-            {
-                "path": rel,
-                "reason": reasons[0],
-                "labels": labels,
-            }
+        if not reasons:
+            reasons.append("named role definition")
+        # Prefer definition-rich auth/roles files over incidental mentions.
+        score = len(labels) * 10
+        if any(token in rel.lower() for token in ("/auth", "/roles", "roletier", "openapi")):
+            score += 50
+        if filename_hit:
+            score += 10
+        scored.append(
+            (
+                score,
+                {
+                    "path": rel,
+                    "reason": reasons[0],
+                    "labels": labels,
+                },
+            )
         )
-        if len(candidates) >= max_items:
-            break
-    return candidates
+    scored.sort(key=lambda item: (-item[0], item[1]["path"]))
+    return [item for _, item in scored[:max_items]]
+
+
+def probe_linked_auth_role_candidates(
+    linked_repositories: list[dict[str, Any]],
+    max_items: int,
+) -> list[dict[str, Any]]:
+    """Workspace wrappers often keep product code in nested git checkouts.
+
+    Parent `git ls-files` misses those trees, so probe linked repos lightly for
+    product role names when the wrapper itself has none.
+    """
+    merged: list[dict[str, Any]] = []
+    for linked in linked_repositories:
+        git_root = linked.get("git_root") or linked.get("path")
+        if not git_root:
+            continue
+        linked_root = Path(str(git_root))
+        if not linked_root.is_dir():
+            continue
+        rel_prefix = str(linked.get("path") or linked_root.name)
+        try:
+            files = walk_files(linked_root)
+        except OSError:
+            continue
+        for item in detect_auth_role_candidates(files, linked_root, max_items):
+            merged.append(
+                {
+                    **item,
+                    "path": f"{rel_prefix}/{item['path']}",
+                    "reason": f"linked repo ({item.get('reason')})",
+                }
+            )
+            if len(merged) >= max_items:
+                return merged
+    return merged
+
+
+def probe_linked_auth_gate_candidates(
+    linked_repositories: list[dict[str, Any]],
+    max_items: int,
+) -> list[dict[str, str]]:
+    merged: list[dict[str, str]] = []
+    for linked in linked_repositories:
+        git_root = linked.get("git_root") or linked.get("path")
+        if not git_root:
+            continue
+        linked_root = Path(str(git_root))
+        if not linked_root.is_dir():
+            continue
+        rel_prefix = str(linked.get("path") or linked_root.name)
+        try:
+            files = walk_files(linked_root)
+        except OSError:
+            continue
+        for item in detect_marker_candidates(
+            files,
+            linked_root,
+            max_items,
+            markers=AUTH_GATE_MARKERS,
+            name_tokens=("auth", "permission", "guard", "policy"),
+            skip_noisy_paths=True,
+        ):
+            merged.append(
+                {
+                    **item,
+                    "path": f"{rel_prefix}/{item['path']}",
+                    "reason": f"linked repo ({item.get('reason')})",
+                }
+            )
+            if len(merged) >= max_items:
+                return merged
+    return merged
+
+
+def merge_auth_role_candidates(
+    primary: list[dict[str, Any]],
+    linked: list[dict[str, Any]],
+    max_items: int,
+) -> list[dict[str, Any]]:
+    if primary:
+        return primary[:max_items]
+    return linked[:max_items]
 
 
 def detect_project_signals(
@@ -1651,6 +1955,7 @@ def discover_component_candidates(
                     args.max_items,
                     markers=AUTH_GATE_MARKERS,
                     name_tokens=("auth", "permission", "guard", "policy"),
+                    skip_noisy_paths=True,
                 ),
             }
         )
@@ -1702,6 +2007,26 @@ def discover_repository(
             and path.suffix.lower() not in SOURCE_SUFFIXES
         }
     )[: args.max_items]
+    linked_repositories = infer_linked_repository_roles(
+        discover_nested_git_repositories(root)
+    )
+    auth_roles = merge_auth_role_candidates(
+        detect_auth_role_candidates(files, root, args.max_items),
+        probe_linked_auth_role_candidates(linked_repositories, args.max_items),
+        args.max_items,
+    )
+    auth_gates = merge_auth_role_candidates(
+        detect_marker_candidates(
+            files,
+            root,
+            args.max_items,
+            markers=AUTH_GATE_MARKERS,
+            name_tokens=("auth", "permission", "guard", "policy"),
+            skip_noisy_paths=True,
+        ),
+        probe_linked_auth_gate_candidates(linked_repositories, args.max_items),
+        args.max_items,
+    )
     return {
         "source_id": source_id,
         "root": str(root),
@@ -1740,9 +2065,7 @@ def discover_repository(
             args.max_items,
         ),
         "repository_identity": git_repository_identity(root),
-        "linked_repository_candidates": infer_linked_repository_roles(
-            discover_nested_git_repositories(root)
-        ),
+        "linked_repository_candidates": linked_repositories,
         "test_commands": detect_test_commands(root, files, frameworks),
         "unclassified_test_candidates": unclassified,
         "viewport_fork_candidates": detect_viewport_fork_candidates(
@@ -1750,18 +2073,8 @@ def discover_repository(
             root,
             args.max_items,
         ),
-        "auth_role_candidates": detect_auth_role_candidates(
-            files,
-            root,
-            args.max_items,
-        ),
-        "auth_gate_candidates": detect_marker_candidates(
-            files,
-            root,
-            args.max_items,
-            markers=AUTH_GATE_MARKERS,
-            name_tokens=("auth", "permission", "guard", "policy"),
-        ),
+        "auth_role_candidates": auth_roles,
+        "auth_gate_candidates": auth_gates,
         "recommended_next_probes": (
             []
             if frameworks or classified["test_files"]
