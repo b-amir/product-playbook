@@ -21,12 +21,35 @@ Intake is always one chat message:
 Reserve polls for later steps that do **not** need the user to confirm a table
 (for example Plan approve, or after-Plan export / agent-check picks).
 
+## Hard rule: verbatim bootstrap output
+
+Consistency comes from the script, not from the model.
+
+1. Run `bootstrap_playbook.py` with explicit `--source` / `--docs-source` when possible.
+2. Print `intake.intake_message` **verbatim**. Do not rewrite the table. Do not invent rows.
+3. Same sources and same tree → same Intake message.
+4. If two chats disagree, compare the **Scope** row and the sources that were passed in.
+
+Do not freehand discovery into the table. Agents that paraphrase will drift.
+
+## Consistency checklist
+
+| Cause of drift | Fix |
+| --- | --- |
+| Different cwd or `--source` roots | Pass the same sources every time |
+| One chat finds `unified-docs`, another only `frontend/` | Include every intended root explicitly |
+| Model rewrote the table | Print `intake_message` verbatim |
+| Weak auth/viewport false positives | Trust the script markers after bootstrap |
+
+Show Scope in the table so the user can see what was scanned.
+
 ## What I found
 
-Print only what discovery found. Skip empty sections.
+The rendered table always includes Scope, Related folders, and Caution (`none` when empty).
 
 | Section | Plain language |
 | --- | --- |
+| Scope | Which source IDs and paths were scanned |
 | Product | What kind of product this looks like |
 | Folders | What we will use, and what each one is for |
 | Existing playbook | Where a playbook already lives, if any |
@@ -37,13 +60,14 @@ Print only what discovery found. Skip empty sections.
 | Related folders | Nested or linked repos we noticed |
 | Caution | Things that look like mocks or generated copies |
 
-Required chat shape:
+Required chat shape (prefer `intake.intake_message` from bootstrap):
 
 ```markdown
 ## What I found
 
 | Item | Value |
 | --- | --- |
+| Scope | product=/path/to/repo |
 | Product | web app + API |
 | Folders | web → apps/web (web app); api → services/api (API) |
 | Existing playbook | docs/playbook |
@@ -51,6 +75,8 @@ Required chat shape:
 | Product roles | Admin, Member |
 | Width-sensitive screens | none found |
 | Permission checks | none found |
+| Related folders | none |
+| Caution | none |
 
 Correct me if I'm wrong.
 
@@ -75,8 +101,6 @@ Recommended: A A A
 Reply like: A A A
 Or: recommended
 ```
-
-Adapt letters and recommendations to what discovery found. Keep the reply line.
 
 Do not ask a separate “does this look right?” question. The disclaimer covers that.
 If something in the table is wrong, the user corrects it in the same reply.
@@ -164,11 +188,12 @@ Mark the recommended answer.
 ## Anti-patterns
 
 - Using polls / AskQuestion for Intake
+- Paraphrasing or inventing Intake table rows
 - Asking about findings the user cannot see next to the question
 - Hiding the recommended answer
 - Forcing free-text paths when a discovered path exists
 - Asking one Intake question per turn
 - Writing before answers
-- Surfacing digests, hashes, fingerprints, or session IDs
+- Surfacing digests, hashes, fingerprints, or session IDs to the user
 - Creating a second playbook for the same product because another repo joined
 - Re-asking Create when Update is clearly the right default

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -207,6 +208,17 @@ def build_working_assumptions(discovery: dict[str, Any]) -> dict[str, Any]:
         "permission_checks": _sample(permission_checks, 8),
         "related_folders": linked,
         "cautions": cautions,
+        "scope": {
+            "sources": [
+                {
+                    "name": folder["name"],
+                    "path": folder["path_or_remote"],
+                }
+                for folder in folders
+            ],
+            "output_decision": discovery.get("output_decision"),
+            "mode_suggestion": discovery.get("mode_suggestion"),
+        },
     }
 
 
@@ -229,6 +241,16 @@ def build_findings_copy(assumptions: dict[str, Any]) -> dict[str, str]:
         if folders
         else "none"
     )
+    scope = assumptions.get("scope") or {}
+    scope_sources = scope.get("sources") or []
+    scope_cell = (
+        "; ".join(
+            f"{item.get('name')}={item.get('path')}"
+            for item in scope_sources
+            if item.get("name")
+        )
+        or "unknown"
+    )
     drafts = assumptions.get("existing_playbook") or []
     if drafts:
         playbook = str(
@@ -244,7 +266,7 @@ def build_findings_copy(assumptions: dict[str, Any]) -> dict[str, str]:
     if not roles:
         role_text = "none found"
     elif len(roles) > 3:
-        role_text = f"{len(roles)} signals in code (see discovery notes)"
+        role_text = f"{len(roles)} signals in code"
     else:
         role_text = ", ".join(
             sorted(
@@ -266,6 +288,22 @@ def build_findings_copy(assumptions: dict[str, Any]) -> dict[str, str]:
         if gates
         else "none found"
     )
+    related = assumptions.get("related_folders") or []
+    if related:
+        related_text = "; ".join(
+            f"{item.get('source_id')}: {len(item.get('items') or [])} linked"
+            for item in related
+        )
+    else:
+        related_text = "none"
+    cautions = assumptions.get("cautions") or []
+    if cautions:
+        caution_text = "; ".join(
+            f"{item.get('source_id')}: {len(item.get('items') or [])} warning(s)"
+            for item in cautions
+        )
+    else:
+        caution_text = "none"
     product = (assumptions.get("product") or {}).get("summary") or "unknown"
     agreement = assumptions.get("agreement_copy") or "Correct me if I'm wrong."
 
@@ -275,6 +313,7 @@ def build_findings_copy(assumptions: dict[str, Any]) -> dict[str, str]:
             "",
             "| Item | Value |",
             "| --- | --- |",
+            f"| Scope | {scope_cell} |",
             f"| Product | {product} |",
             f"| Folders | {folder_cell} |",
             f"| Existing playbook | {playbook} |",
@@ -282,6 +321,8 @@ def build_findings_copy(assumptions: dict[str, Any]) -> dict[str, str]:
             f"| Product roles | {role_text} |",
             f"| Width-sensitive screens | {width_text} |",
             f"| Permission checks | {gate_text} |",
+            f"| Related folders | {related_text} |",
+            f"| Caution | {caution_text} |",
             "",
             agreement,
         ]
@@ -290,6 +331,11 @@ def build_findings_copy(assumptions: dict[str, Any]) -> dict[str, str]:
         "chat_block": chat_block,
         "disclaimer": agreement,
     }
+
+
+def intake_fingerprint(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:12]
 
 
 def build_intake(
@@ -458,6 +504,12 @@ def build_intake(
     )
     choices_block = "\n".join(choice_lines)
     intake_message = f"{findings_copy['chat_block']}\n\n{choices_block}\n"
+    fingerprint_payload = {
+        "working_assumptions": assumptions,
+        "recommended_reply": recommended_reply,
+        "question_ids": [question["id"] for question in questions],
+    }
+    fingerprint = intake_fingerprint(fingerprint_payload)
 
     return {
         "intent": intent,
@@ -466,6 +518,7 @@ def build_intake(
         "working_assumptions": assumptions,
         "findings_chat_block": findings_copy["chat_block"],
         "intake_message": intake_message,
+        "intake_fingerprint": fingerprint,
         "source_role_assumptions": role_assumptions,
         "canonical_output_assumption": {
             "decision": discovery.get("output_decision"),
@@ -491,8 +544,9 @@ def build_intake(
         },
         "presentation_notes": [
             "HARD RULE: Intake uses NO polls and NO AskQuestion widgets.",
-            "HARD RULE: Print intake_message as one chat message (table + disclaimer + lettered choices).",
-            "Do not open a choice UI for Intake. Polls hide the findings table.",
+            "HARD RULE: Run bootstrap_playbook.py, then print intake.intake_message VERBATIM.",
+            "Do not paraphrase, trim, reorder, or invent table rows. Same sources → same message.",
+            "If two chats disagree, compare Scope rows and --source arguments first.",
             "Polls are allowed later for plan_gate and after_plan only.",
             f"Show Recommended: {recommended_reply}",
             "Accept the bare word recommended as the full recommended reply.",

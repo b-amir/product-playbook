@@ -28,8 +28,8 @@ Export and Agent-check never run by default.
 Make answering easy. Prefer picking over typing.
 
 **Intake (What I found):** always one chat message. No polls. No AskQuestion.
-Print the findings table, `Correct me if I'm wrong.`, then lettered choices with a
-recommended reply in the same message.
+Run bootstrap, then print `intake.intake_message` verbatim (table + disclaimer + lettered
+choices). Do not paraphrase. Same sources → same message.
 
 **Plan gate and after-Plan picks:** prefer harness polls when available. Otherwise use a
 short lettered menu. Mark the recommended answer.

@@ -114,18 +114,23 @@ Do not add **Across viewports** to scenarios without viewport-fork evidence.
 
 ## Intake: What I found (chat only — no polls)
 
+Print `intake.intake_message` from bootstrap verbatim. Example shape:
+
 ```markdown
 ## What I found
 
 | Item | Value |
 | --- | --- |
+| Scope | product=/path/to/repo |
 | Product | web app + API |
 | Folders | web → apps/web (web app); api → services/api (API) |
 | Existing playbook | docs/playbook |
 | Save location | docs/playbook |
 | Product roles | Admin, Member |
-| Width-sensitive screens | PermissionGate.tsx |
-| Permission checks | requireRole on settings |
+| Width-sensitive screens | none found |
+| Permission checks | none found |
+| Related folders | none |
+| Caution | none |
 
 Correct me if I'm wrong.
 
@@ -151,7 +156,7 @@ Reply like: A A A
 Or: recommended
 ```
 
-Do not open a poll UI for this step.
+Do not open a poll UI for this step. Do not rewrite the table by hand.
 
 ## Forbidden in published Markdown
 

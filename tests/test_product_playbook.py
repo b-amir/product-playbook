@@ -461,8 +461,12 @@ class DiscoveryTests(unittest.TestCase):
                 report["intake"]["ux"]["polls_allowed_for"],
                 ["plan_gate", "after_plan"],
             )
+            self.assertIn("| Scope |", report["intake"]["findings_chat_block"])
+            self.assertIn("| Related folders |", report["intake"]["findings_chat_block"])
+            self.assertIn("| Caution |", report["intake"]["findings_chat_block"])
+            self.assertTrue(report["intake"]["intake_fingerprint"])
             self.assertTrue(
-                any("NO polls" in note for note in report["intake"]["presentation_notes"])
+                any("VERBATIM" in note for note in report["intake"]["presentation_notes"])
             )
 
             explicit = json.loads(

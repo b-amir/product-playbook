@@ -73,11 +73,14 @@ python3 <skill-dir>/scripts/bootstrap_playbook.py \
 
 Present Intake as **one chat message** per [references/intake.md](references/intake.md).
 
-Hard rule: **no polls / AskQuestion for Intake.** Print `intake.intake_message` (or build the
-same shape from `findings_chat_block` + lettered questions). That message has the findings
-table, `Correct me if I'm wrong.`, and the lettered choices with a recommended reply.
+Hard rules:
 
-Polls are allowed later only for Plan approve and after-Plan picks (no table to confirm).
+1. Run `bootstrap_playbook.py` (prefer explicit `--source` / `--docs-source`).
+2. **No polls / AskQuestion for Intake.**
+3. Print `intake.intake_message` **verbatim**. Do not rewrite or invent table rows.
+4. Same sources → same Intake. If two chats disagree, compare the Scope row first.
+
+Polls are allowed later only for Plan approve and after-Plan picks.
 Stop until the user answers with letters or `recommended`.
 Never ask about digests, fingerprints, or session IDs.
 Never ask them to write sentences when a letter will do.

@@ -107,8 +107,6 @@ AUTH_GATE_MARKERS = (
     ("permissiongate", "permission gate"),
     ("canactivate", "route guard"),
     ("authorize(", "authorize call"),
-    ("forbidden", "forbidden / deny path"),
-    ("403", "forbidden status"),
 )
 VIEWPORT_FORK_MARKERS = (
     ("@media", "CSS media query"),
@@ -1131,6 +1129,12 @@ def detect_viewport_fork_candidates(
             if marker in content and reason not in reasons:
                 reasons.append(reason)
         if not reasons:
+            continue
+        # Bare @media in generic CSS is too noisy for Intake. Keep stronger signals.
+        if reasons == ["CSS media query"] and not any(
+            token in stem_lower or token in name_lower
+            for token in ("mobile", "desktop", "responsive", "breakpoint")
+        ):
             continue
         candidates.append(
             {
