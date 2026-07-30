@@ -345,11 +345,19 @@ def build_findings_copy(assumptions: dict[str, Any]) -> dict[str, str]:
     else:
         role_text = "none found"
     width = assumptions.get("screens_that_change_by_width") or []
-    width_text = (
-        ", ".join(_display_path(item.get("where")) for item in width[:3])
-        if width
-        else "none found"
-    )
+    if not width:
+        width_text = "none found"
+    else:
+        shown = ", ".join(_display_path(item.get("where")) for item in width[:3])
+        extra = len(width) - 3
+        # Prefer high-signal reasons in the cell when present.
+        top_why = str((width[0] or {}).get("why") or "")
+        if "permission" in top_why or "role" in top_why:
+            width_text = f"{shown} (incl. permission-sensitive forks)"
+        else:
+            width_text = shown
+        if extra > 0:
+            width_text = f"{width_text}; +{extra} more"
     gates = assumptions.get("permission_checks") or []
     gate_text = (
         ", ".join(_display_path(item.get("where")) for item in gates[:3])

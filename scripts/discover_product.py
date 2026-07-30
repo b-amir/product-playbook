@@ -18,6 +18,7 @@ from source_utils import (
     create_workspace,
     discover_nested_git_repositories,
     ensure_unique_sources,
+    expand_acquired_sources,
     git_repository_identity,
     is_remote_locator,
     legacy_specs,
@@ -276,12 +277,31 @@ VIEWPORT_FORK_MARKERS = (
     ("onwindowresize", "resize handler"),
     ("ismobile(", "isMobile helper"),
     ("isdesktop(", "isDesktop helper"),
+    ("const ismobile", "isMobile branch"),
+    ("let ismobile", "isMobile branch"),
+    ("mobilevariant", "mobile/desktop variant split"),
+    ("desktopvariant", "mobile/desktop variant split"),
     ("mobileonly", "mobile-only branch"),
     ("desktoponly", "desktop-only branch"),
     ("md:hidden", "responsive utility class"),
     ("hidden md:", "responsive utility class"),
     ("sm:hidden", "responsive utility class"),
     ("lg:block", "responsive utility class"),
+)
+# When a viewport fork also gates by role/permission, rank it higher — that is
+# where narrow/wide bugs like "icon visible on mobile only" show up.
+VIEWPORT_AUTH_CROSSOVER_MARKERS = (
+    "usepermission",
+    "permissiongate",
+    "haspermission",
+    "require_role",
+    "requirerole",
+    "canmanage",
+    "roletier",
+    "role_tier",
+    "oninviteuser",
+    "users:invite",
+    "authorize(",
 )
 DOC_SUFFIXES = {".adoc", ".md", ".mdx", ".rst", ".txt"}
 CONTRACT_SUFFIXES = {".graphql", ".gql", ".proto", ".raml"}
@@ -958,7 +978,10 @@ def discover_addresses(
             if any(token in raw for token in ("${", "{{", "}}", "<", ">")):
                 continue
             value = sanitize_remote_locator(raw.rstrip(".,);]}"))
-            parsed = urlsplit(value)
+            try:
+                parsed = urlsplit(value)
+            except ValueError:
+                continue
             if not parsed.hostname:
                 continue
             key = ("runtime-url", value, rel)
@@ -1267,40 +1290,103 @@ def detect_viewport_fork_candidates(
     root: Path,
     max_items: int,
 ) -> list[dict[str, str]]:
-    candidates: list[dict[str, str]] = []
+    scored: list[tuple[int, dict[str, str]]] = []
     for path in files:
         if path.suffix.lower() not in VIEWPORT_FORK_SUFFIXES:
             continue
         rel = relative(path, root)
+        if _auth_role_path_is_noisy(rel):
+            continue
         name_lower = path.name.lower()
         stem_lower = path.stem.lower()
+        rel_lower = rel.lower()
         reasons: list[str] = []
-        if any(
+        filename_hit = any(
             token in stem_lower or token in name_lower
             for token in ("mobile", "desktop", "responsive", "breakpoint")
-        ):
+        )
+        if filename_hit:
             reasons.append("viewport-oriented filename")
-        content = read_text(path, limit=120_000).lower()
+        content = read_text(path, limit=120_000)
+        content_lower = content.lower()
         for marker, reason in VIEWPORT_FORK_MARKERS:
-            if marker in content and reason not in reasons:
+            if marker in content_lower and reason not in reasons:
                 reasons.append(reason)
         if not reasons:
             continue
         # Bare @media in generic CSS is too noisy for Intake. Keep stronger signals.
-        if reasons == ["CSS media query"] and not any(
-            token in stem_lower or token in name_lower
-            for token in ("mobile", "desktop", "responsive", "breakpoint")
+        if reasons == ["CSS media query"] and not filename_hit:
+            continue
+        # Test harness matchMedia polyfills are weak Intake clues.
+        if (
+            reasons == ["matchMedia usage"]
+            and ("setup" in stem_lower or "polyfill" in stem_lower or "/test/" in rel_lower)
         ):
             continue
-        candidates.append(
-            {
-                "path": rel,
-                "reason": reasons[0],
-            }
+        auth_crossover = any(
+            marker in content_lower for marker in VIEWPORT_AUTH_CROSSOVER_MARKERS
         )
-        if len(candidates) >= max_items:
-            break
-    return candidates
+        if auth_crossover and "viewport + permission/role fork" not in reasons:
+            reasons.insert(0, "viewport + permission/role fork")
+        score = 10
+        if auth_crossover:
+            score += 80
+        if any(
+            token in rel_lower
+            for token in ("/sidebar", "/nav", "/shell", "/header", "/layout")
+        ):
+            score += 40
+        if any(
+            token in content_lower
+            for token in ("mobilevariant", "desktopvariant", "usemediaquery")
+        ):
+            score += 25
+        if filename_hit:
+            score += 5
+        # Prefer product features over shared UI primitives.
+        if rel_lower.startswith("app/ui/") or "/components/ui/" in rel_lower:
+            score -= 20
+        scored.append(
+            (
+                score,
+                {
+                    "path": rel,
+                    "reason": reasons[0],
+                },
+            )
+        )
+    scored.sort(key=lambda item: (-item[0], item[1]["path"]))
+    return [item for _, item in scored[:max_items]]
+
+
+def probe_linked_viewport_fork_candidates(
+    linked_repositories: list[dict[str, Any]],
+    max_items: int,
+) -> list[dict[str, str]]:
+    merged: list[dict[str, str]] = []
+    for linked in linked_repositories:
+        git_root = linked.get("git_root") or linked.get("path")
+        if not git_root:
+            continue
+        linked_root = Path(str(git_root))
+        if not linked_root.is_dir():
+            continue
+        rel_prefix = str(linked.get("path") or linked_root.name)
+        try:
+            files = walk_files(linked_root)
+        except OSError:
+            continue
+        for item in detect_viewport_fork_candidates(files, linked_root, max_items):
+            merged.append(
+                {
+                    **item,
+                    "path": f"{rel_prefix}/{item['path']}",
+                    "reason": f"linked repo ({item.get('reason')})",
+                }
+            )
+            if len(merged) >= max_items:
+                return merged
+    return merged
 
 
 def detect_marker_candidates(
@@ -2010,23 +2096,19 @@ def discover_repository(
     linked_repositories = infer_linked_repository_roles(
         discover_nested_git_repositories(root)
     )
-    auth_roles = merge_auth_role_candidates(
-        detect_auth_role_candidates(files, root, args.max_items),
-        probe_linked_auth_role_candidates(linked_repositories, args.max_items),
+    # Nested members are expanded into their own repositories before this runs.
+    # Keep linked_repository_candidates for residual metadata only — do not use
+    # them as a fallback scan of "the frontend somewhere under the wrapper".
+    auth_roles = detect_auth_role_candidates(files, root, args.max_items)
+    auth_gates = detect_marker_candidates(
+        files,
+        root,
         args.max_items,
+        markers=AUTH_GATE_MARKERS,
+        name_tokens=("auth", "permission", "guard", "policy"),
+        skip_noisy_paths=True,
     )
-    auth_gates = merge_auth_role_candidates(
-        detect_marker_candidates(
-            files,
-            root,
-            args.max_items,
-            markers=AUTH_GATE_MARKERS,
-            name_tokens=("auth", "permission", "guard", "policy"),
-            skip_noisy_paths=True,
-        ),
-        probe_linked_auth_gate_candidates(linked_repositories, args.max_items),
-        args.max_items,
-    )
+    viewport_forks = detect_viewport_fork_candidates(files, root, args.max_items)
     return {
         "source_id": source_id,
         "root": str(root),
@@ -2068,11 +2150,7 @@ def discover_repository(
         "linked_repository_candidates": linked_repositories,
         "test_commands": detect_test_commands(root, files, frameworks),
         "unclassified_test_candidates": unclassified,
-        "viewport_fork_candidates": detect_viewport_fork_candidates(
-            files,
-            root,
-            args.max_items,
-        ),
+        "viewport_fork_candidates": viewport_forks,
         "auth_role_candidates": auth_roles,
         "auth_gate_candidates": auth_gates,
         "recommended_next_probes": (
@@ -2294,6 +2372,9 @@ def main() -> int:
 
     code_sources = [source for source in acquired if source.kind == "code"]
     docs_sources = [source for source in acquired if source.kind == "docs"]
+    acquired, workspace_expansions = expand_acquired_sources(acquired)
+    code_sources = [source for source in acquired if source.kind == "code"]
+    docs_sources = [source for source in acquired if source.kind == "docs"]
     code_roots = [source.root for source in code_sources]
     docs_paths = [source.root for source in docs_sources]
 
@@ -2351,7 +2432,11 @@ def main() -> int:
                 f"Markdown: {explicit_draft}"
             )
     explicit_output = Path(args.output_dir).expanduser().resolve() if args.output_dir else None
-    multi_evidence = len(code_roots) > 1 or len(docs_paths) > 0
+    multi_evidence = (
+        len(code_roots) > 1
+        or len(docs_paths) > 0
+        or bool(workspace_expansions)
+    )
 
     if explicit_output:
         recommended_output: str | None = str(explicit_output)
@@ -2382,6 +2467,7 @@ def main() -> int:
         len(code_sources) == 1
         and code_sources[0].locator_type == "local"
         and not docs_paths
+        and not workspace_expansions
     ):
         recommended_output = str(code_roots[0] / "docs" / "playbook")
         output_decision = "default_single_code_repo"
@@ -2486,6 +2572,7 @@ def main() -> int:
             }
             for source in acquired
         ],
+        "workspace_expansions": workspace_expansions,
         "source_addresses": source_addresses,
         "repositories": repositories,
         "documentation": documentation_reports,
@@ -2612,10 +2699,21 @@ def main() -> int:
         report["notes"].append(
             "No known test framework detected. Inspect project test commands and CI before choosing evidence."
         )
+    if workspace_expansions:
+        member_ids = [
+            member_id
+            for expansion in workspace_expansions
+            for member_id in expansion.get("member_source_ids", [])
+        ]
+        report["notes"].append(
+            "Workspace folder expanded into separate scan roots for each nested repo, "
+            f"submodule, or product subfolder ({', '.join(member_ids)}). "
+            "A source path is not assumed to be one repository."
+        )
     if report["evidence_summary"]["linked_repository_candidates"]:
         report["notes"].append(
-            "Nested or linked Git repositories were found. Confirm which are product, documentation, "
-            "contract, integration, RAG, worker, SDK, or helper-package sources before writing."
+            "Additional nested Git repositories remain inside a scanned root. Confirm whether "
+            "they should be separate sources before writing."
         )
     if report["evidence_summary"]["scope_warnings"]:
         report["notes"].append(

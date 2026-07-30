@@ -62,6 +62,11 @@ SOURCE_ID=PATH_OR_URL
 
 Stable IDs describe responsibility (`web`, `api`, `docs`, …), not branding.
 
+A source path is **not** assumed to be one git repository. Workspace folders that contain
+nested repos, submodules, or product-looking subfolders (`frontend/`, `backend/`,
+`unified-docs/`, …) are expanded into separate scan roots before discovery. Intake Folders
+lists those members — not a single wrapper pretending to be the whole product.
+
 Also accept: `docs_source`, `output_dir`, `draft_path`, `run_scope`
 (`auto` | `full` | `contribution` | `audit`), `scope`, `product_surface`,
 `test_framework`, `verify` / Agent-check, propose-only plan path, and inventory

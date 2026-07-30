@@ -82,6 +82,16 @@ Look for evidence that the same journey can diverge by width or device class:
 Discovery may list `viewport_fork_candidates` when these markers appear. Treat that list as a
 lead for Plan, not as proof of divergent outcomes.
 
+Rank higher when a viewport fork also touches permission/role UI (sidebar/nav invite
+buttons, permission gates inside `isMobile` branches). Those are the bugs testers miss
+when they only check desktop width.
+
+Workspace folders are expanded into separate scan roots for each nested repo, submodule,
+or product-looking subfolder. Do not treat a wrapper path as one frontend repository.
+
+Filename-only `*-desktop.css` / `*-mobile.css` hits are weaker than `useMediaQuery` +
+`MobileVariant` / `DesktopVariant` splits.
+
 ### When to mark a scenario
 
 Mark a scenario `viewport_sensitive` only when its linked routes, components, or tests hit these
@@ -275,8 +285,8 @@ Role labels must come from high-confidence evidence only:
 
 Do **not** treat chat message roles (`user` / `assistant`), permission actions (`suspend`,
 `view`), UI nouns (`Page`, `Guard`), or agent-tool personas (`Fixer`, `Scout`) as product roles.
-Skip automation/tooling trees for role naming. When the scan root is a workspace wrapper,
-probe linked product repos for role definitions if the wrapper itself has none.
+Skip automation/tooling trees for role naming. Workspace wrappers are expanded into separate
+scan roots per nested repo/subfolder before role discovery runs.
 
 Publish only steps a tester can perform on a supported interface. Never publish client secrets.
 Never invent roles the user did not confirm.

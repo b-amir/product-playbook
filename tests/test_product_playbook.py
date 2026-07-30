@@ -248,11 +248,60 @@ class DiscoveryTests(unittest.TestCase):
             repository = report["repositories"][0]
             paths = {item["path"] for item in repository["viewport_fork_candidates"]}
             self.assertIn("src/PermissionGate.tsx", paths)
+            top = repository["viewport_fork_candidates"][0]
+            self.assertEqual(top["path"], "src/PermissionGate.tsx")
+            self.assertIn("permission", top["reason"])
             self.assertGreaterEqual(
                 report["evidence_summary"]["viewport_fork_candidates"], 1
             )
             self.assertTrue(
                 any("phone and desktop" in note.lower() for note in report["notes"])
+            )
+
+    def test_viewport_candidates_prefer_sidebar_permission_forks(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write(root / "package.json", '{ "dependencies": { "react": "1" } }\n')
+            write(
+                root / "app" / "features" / "arrange" / "arrange-desktop.css",
+                "@media (min-width: 768px) { .x { display: block; } }\n",
+            )
+            write(
+                root / "app" / "features" / "chat" / "sidebar" / "sidebar.tsx",
+                """
+                import { useMediaQuery } from '@mantine/hooks'
+                export function Sidebar({ onInviteUser }) {
+                  const isMobile = useMediaQuery('(max-width: 767px)')
+                  return isMobile ? <MobileVariant onInviteUser={onInviteUser} /> : <DesktopVariant />
+                }
+                function MobileVariant() {
+                  return <button>Invite a User</button>
+                }
+                function DesktopVariant() {
+                  return null
+                }
+                """,
+            )
+            report = json.loads(
+                run_script(
+                    "discover_product.py",
+                    "--source",
+                    f"web={root}",
+                ).stdout
+            )
+            paths = [
+                item["path"]
+                for item in report["repositories"][0]["viewport_fork_candidates"]
+            ]
+            self.assertTrue(paths)
+            self.assertIn("sidebar", paths[0])
+            self.assertLess(
+                paths.index(
+                    "app/features/chat/sidebar/sidebar.tsx"
+                ),
+                paths.index("app/features/arrange/arrange-desktop.css")
+                if "app/features/arrange/arrange-desktop.css" in paths
+                else 99,
             )
 
     def test_auth_role_candidates_appear_in_intake_assumptions(self) -> None:
@@ -749,23 +798,83 @@ class DiscoveryTests(unittest.TestCase):
                     f"product={root}",
                 ).stdout
             )
-            candidates = report["repositories"][0][
-                "linked_repository_candidates"
-            ]
-            self.assertEqual(len(candidates), 1)
-            self.assertEqual(candidates[0]["path"], "product-docs")
-            self.assertIn("docs", candidates[0]["assumed_roles"])
-            self.assertEqual(
-                candidates[0]["remotes"][0]["fetch_url"],
-                "https://example.test/product/docs.git",
+            source_ids = {source["source_id"] for source in report["sources"]}
+            self.assertIn("product-docs", source_ids)
+            self.assertNotIn("product", source_ids)
+            self.assertTrue(report["workspace_expansions"])
+            expansion = report["workspace_expansions"][0]
+            self.assertEqual(expansion["parent_source_id"], "product")
+            member = expansion["members"][0]
+            self.assertEqual(member["path"], "product-docs")
+            self.assertIn("docs", member["assumed_roles"])
+            docs_source = next(
+                source for source in report["sources"] if source["source_id"] == "product-docs"
             )
-            self.assertEqual(len(candidates[0]["playbook_candidates"]), 1)
-            self.assertEqual(report["output_decision"], "confirm_linked_draft")
-            self.assertTrue(report["ask_before_write"])
+            self.assertEqual(docs_source["kind"], "code")
+            self.assertEqual(report["output_decision"], "reuse_unique_draft")
+            self.assertFalse(report["ask_before_write"])
             self.assertEqual(
                 report["continuation_suggestion"],
-                "confirm_and_continue_linked_playbook",
+                "continue_unique_playbook",
             )
+
+    def test_workspace_expands_nested_repos_and_product_subfolders(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            frontend = root / "frontend"
+            backend = root / "backend"
+            subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
+            subprocess.run(["git", "init", str(frontend)], check=True, capture_output=True)
+            write(root / "package.json", '{ "name": "wrapper" }\n')
+            write(frontend / "package.json", '{ "dependencies": { "react": "1" } }\n')
+            write(
+                frontend / "app" / "roles.ts",
+                'export type RoleTier = "administrator" | "manager";\n',
+            )
+            write(backend / "pyproject.toml", '[project]\nname = "api"\n')
+            write(backend / "app" / "main.py", "def hello():\n    return 1\n")
+            report = json.loads(
+                run_script(
+                    "discover_product.py",
+                    "--source",
+                    f"product={root}",
+                ).stdout
+            )
+            source_ids = {source["source_id"] for source in report["sources"]}
+            self.assertEqual({"frontend", "backend"}, source_ids)
+            repo_ids = {repo["source_id"] for repo in report["repositories"]}
+            self.assertIn("frontend", repo_ids)
+            self.assertIn("backend", repo_ids)
+            labels = {
+                label
+                for repo in report["repositories"]
+                for item in repo.get("auth_role_candidates", [])
+                for label in item.get("labels") or []
+            }
+            self.assertTrue({"Administrator", "Manager"} & labels)
+            intake = json.loads(
+                run_script(
+                    "bootstrap_playbook.py",
+                    "--source",
+                    f"product={root}",
+                    "--intent",
+                    "create",
+                ).stdout
+            )
+            folder_names = {
+                folder["name"]
+                for folder in intake["intake"]["working_assumptions"]["folders_and_repos"]
+            }
+            self.assertEqual({"frontend", "backend"}, folder_names)
+            self.assertFalse(
+                intake["intake"]["working_assumptions"].get("related_folders")
+            )
+            roles_cell = [
+                line
+                for line in intake["intake"]["findings_chat_block"].splitlines()
+                if line.startswith("| Product roles |")
+            ][0]
+            self.assertIn("Administrator", roles_cell)
 
     def test_contract_addresses_docs_and_prior_work_are_discovered(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

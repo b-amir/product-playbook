@@ -64,7 +64,7 @@ when the script found concrete paths.
 | Product roles | Named roles/tiers from enums or seeds (Administrator, Manager, …). Never permission actions, chat roles, or agent-tool personas |
 | Width-sensitive screens | Places phone and desktop may differ |
 | Permission checks | Places access may change by role |
-| Nearby repos (not in Folders yet) | Nested/linked repos with paths — omit row when empty |
+| Nearby repos (not in Folders yet) | Only residual nests not already expanded into Folders — omit when empty |
 | Mocks / fixtures / generated | Concrete warning paths — omit row when empty |
 
 Required chat shape (prefer `intake.intake_message` from bootstrap):
