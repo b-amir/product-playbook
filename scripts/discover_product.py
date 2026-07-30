@@ -80,6 +80,36 @@ VIEWPORT_FORK_SUFFIXES = SOURCE_SUFFIXES | {
     ".svelte",
     ".vue",
 }
+AUTH_ROLE_MARKERS = (
+    ("role.admin", "named role constant"),
+    ("role.member", "named role constant"),
+    ("role.user", "named role constant"),
+    ("role.viewer", "named role constant"),
+    ("roles.admin", "named role constant"),
+    ("'admin'", "role string literal"),
+    ('"admin"', "role string literal"),
+    ("'member'", "role string literal"),
+    ('"member"', "role string literal"),
+    ("'viewer'", "role string literal"),
+    ('"viewer"', "role string literal"),
+    ("user_role", "user_role field"),
+    ("userrole", "user role model"),
+    ("rbac", "RBAC usage"),
+)
+AUTH_GATE_MARKERS = (
+    ("require_auth", "auth required"),
+    ("requiresauth", "auth required"),
+    ("require_role", "role required"),
+    ("requirerole", "role required"),
+    ("has_permission", "permission check"),
+    ("haspermission", "permission check"),
+    ("check_permission", "permission check"),
+    ("permissiongate", "permission gate"),
+    ("canactivate", "route guard"),
+    ("authorize(", "authorize call"),
+    ("forbidden", "forbidden / deny path"),
+    ("403", "forbidden status"),
+)
 VIEWPORT_FORK_MARKERS = (
     ("@media", "CSS media query"),
     ("matchmedia", "matchMedia usage"),
@@ -1113,6 +1143,40 @@ def detect_viewport_fork_candidates(
     return candidates
 
 
+def detect_marker_candidates(
+    files: list[Path],
+    root: Path,
+    max_items: int,
+    *,
+    markers: tuple[tuple[str, str], ...],
+    name_tokens: tuple[str, ...] = (),
+    suffixes: set[str] | None = None,
+) -> list[dict[str, str]]:
+    allowed = suffixes or SOURCE_SUFFIXES
+    candidates: list[dict[str, str]] = []
+    for path in files:
+        if path.suffix.lower() not in allowed:
+            continue
+        rel = relative(path, root)
+        name_lower = path.name.lower()
+        stem_lower = path.stem.lower()
+        reasons: list[str] = []
+        if name_tokens and any(
+            token in stem_lower or token in name_lower for token in name_tokens
+        ):
+            reasons.append("matching filename")
+        content = read_text(path, limit=120_000).lower()
+        for marker, reason in markers:
+            if marker in content and reason not in reasons:
+                reasons.append(reason)
+        if not reasons:
+            continue
+        candidates.append({"path": rel, "reason": reasons[0]})
+        if len(candidates) >= max_items:
+            break
+    return candidates
+
+
 def detect_project_signals(
     project_text: str,
     files: list[Path],
@@ -1476,6 +1540,20 @@ def discover_component_candidates(
                     component_root,
                     args.max_items,
                 ),
+                "auth_role_candidates": detect_marker_candidates(
+                    component_files,
+                    component_root,
+                    args.max_items,
+                    markers=AUTH_ROLE_MARKERS,
+                    name_tokens=("role", "roles", "permission", "rbac"),
+                ),
+                "auth_gate_candidates": detect_marker_candidates(
+                    component_files,
+                    component_root,
+                    args.max_items,
+                    markers=AUTH_GATE_MARKERS,
+                    name_tokens=("auth", "permission", "guard", "policy"),
+                ),
             }
         )
     return components
@@ -1573,6 +1651,20 @@ def discover_repository(
             files,
             root,
             args.max_items,
+        ),
+        "auth_role_candidates": detect_marker_candidates(
+            files,
+            root,
+            args.max_items,
+            markers=AUTH_ROLE_MARKERS,
+            name_tokens=("role", "roles", "permission", "rbac"),
+        ),
+        "auth_gate_candidates": detect_marker_candidates(
+            files,
+            root,
+            args.max_items,
+            markers=AUTH_GATE_MARKERS,
+            name_tokens=("auth", "permission", "guard", "policy"),
         ),
         "recommended_next_probes": (
             []
@@ -2038,6 +2130,14 @@ def main() -> int:
                 len(repository.get("viewport_fork_candidates", []))
                 for repository in repositories
             ),
+            "auth_role_candidates": sum(
+                len(repository.get("auth_role_candidates", []))
+                for repository in repositories
+            ),
+            "auth_gate_candidates": sum(
+                len(repository.get("auth_gate_candidates", []))
+                for repository in repositories
+            ),
         },
         "mode_suggestion": mode,
         "output_decision": output_decision,
@@ -2115,9 +2215,17 @@ def main() -> int:
         )
     if report["evidence_summary"]["viewport_fork_candidates"]:
         report["notes"].append(
-            "Viewport-fork signals were found (breakpoints, matchMedia, resize watchers, "
-            "or responsive test helpers). Mark only impacted journeys viewport-sensitive and "
-            "add Across viewports sections for those scenarios."
+            "Some screens may look different on phone and desktop. Only mark those journeys "
+            "for dual-width checks."
+        )
+    if report["evidence_summary"]["auth_role_candidates"]:
+        report["notes"].append(
+            "Possible product roles or account types were found. Show them in Intake as "
+            "assumptions to approve or correct. Do not invent tester accounts."
+        )
+    if report["evidence_summary"]["auth_gate_candidates"]:
+        report["notes"].append(
+            "Permission checks were found. Ask which roles should be able to pass them."
         )
     if prior_work_candidates and not drafts:
         report["notes"].append(

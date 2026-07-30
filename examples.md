@@ -112,6 +112,42 @@ Do not add **Across viewports** to scenarios without viewport-fork evidence.
 | Preserved OOS | PAY-01–PAY-06 | payments source not in scope |
 ```
 
+## Intake: What I found (chat only)
+
+```text
+## What I found
+Product: web app + API
+Folders: web, api, docs
+Existing playbook: docs/playbook
+Product roles: Admin, Member
+Width-sensitive: PermissionGate.tsx
+
+## Choose (reply with letters only)
+Recommended: A A A A
+
+0. Does this look right?
+   A. Yes, continue with these findings (recommended)
+   B. No, I will correct them in this reply
+
+1. What should I do?
+   A. Update the existing playbook (recommended)
+   B. Create a new playbook
+   C. Review only (no file changes)
+   D. Run checks against the live product
+
+2. Which folders should I use?
+   A. All folders listed above (recommended)
+   Z. Add another folder or Git URL
+
+3. Where should the playbook live?
+   A. Use the existing playbook path (recommended)
+   B. Use the suggested path: docs/playbook
+   C. Somewhere else
+
+Reply like: A A A A
+Or: recommended
+```
+
 ## Forbidden in published Markdown
 
 Do not publish:

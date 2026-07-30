@@ -69,8 +69,8 @@ def parse_args() -> argparse.Namespace:
         choices=("auto", "inspect", "audit", "create", "reconcile", "contribute"),
         default="auto",
         help=(
-            "Requested workflow. Auto performs first-run discovery and asks the user to confirm "
-            "sources, roles, prior work, and the next action before any write."
+            "Requested workflow. Auto discovers first, then asks the user to approve or correct "
+            "what was found before any write."
         ),
     )
     parser.add_argument("--test-framework", default="auto")
@@ -84,17 +84,41 @@ def add_repeated(command: list[str], flag: str, values: list[str]) -> None:
         command.extend([flag, value])
 
 
-def build_intake(
-    discovery: dict[str, Any],
-    *,
-    intent: str,
-    defaulted_source_to_cwd: bool,
-) -> dict[str, Any]:
+def _sample(items: list[Any], limit: int = 8) -> list[Any]:
+    return items[:limit]
+
+
+def _role_label(roles: list[str]) -> str:
+    if not roles:
+        return "unknown"
+    friendly = {
+        "frontend": "web app",
+        "api": "API",
+        "fullstack": "full stack",
+        "cli": "command line",
+        "service": "service",
+        "worker": "background jobs",
+        "mobile": "mobile app",
+        "rag": "search / RAG",
+        "library": "library",
+        "sdk": "SDK",
+        "integration": "integration",
+        "extension": "extension",
+        "data": "data",
+        "contracts": "contracts",
+        "docs": "documentation",
+        "documentation": "documentation",
+        "tooling": "tooling",
+    }
+    return ", ".join(friendly.get(role, role) for role in roles)
+
+
+def build_working_assumptions(discovery: dict[str, Any]) -> dict[str, Any]:
     repository_by_source = {
         repository["source_id"]: repository
         for repository in discovery.get("repositories", [])
     }
-    role_assumptions = []
+    folders: list[dict[str, Any]] = []
     for source in discovery.get("source_addresses", []):
         source_id = source["source_id"]
         if source["kind"] == "docs":
@@ -102,107 +126,265 @@ def build_intake(
         else:
             repository = repository_by_source.get(source_id, {})
             roles = repository.get("surfaces", ["unknown"])
-        role_assumptions.append(
+        folders.append(
             {
-                "source_id": source_id,
+                "name": source_id,
                 "kind": source["kind"],
-                "assumed_roles": roles,
+                "what_it_is": _role_label(roles),
+                "path_or_remote": source.get("supplied_remote")
+                or source.get("local_root")
+                or source.get("root")
+                or source.get("path"),
             }
         )
 
+    surfaces: list[str] = []
+    for repository in discovery.get("repositories", []):
+        for surface in repository.get("surfaces", []):
+            if surface not in surfaces:
+                surfaces.append(surface)
+
+    product_roles: list[dict[str, str]] = []
+    viewport_areas: list[dict[str, str]] = []
+    permission_checks: list[dict[str, str]] = []
+    for repository in discovery.get("repositories", []):
+        for item in repository.get("auth_role_candidates", []):
+            product_roles.append(
+                {
+                    "where": item.get("path", ""),
+                    "why": item.get("reason", "role signal"),
+                    "tester_path": "unknown",
+                }
+            )
+        for item in repository.get("viewport_fork_candidates", []):
+            viewport_areas.append(
+                {
+                    "where": item.get("path", ""),
+                    "why": item.get("reason", "viewport signal"),
+                }
+            )
+        for item in repository.get("auth_gate_candidates", []):
+            permission_checks.append(
+                {
+                    "where": item.get("path", ""),
+                    "why": item.get("reason", "permission signal"),
+                }
+            )
+
+    drafts = [
+        *discovery.get("existing_playbook_candidates", []),
+        *discovery.get("linked_playbook_candidates", []),
+    ]
+    linked = [
+        {
+            "source_id": repository["source_id"],
+            "items": _sample(repository.get("linked_repository_candidates", []), 5),
+        }
+        for repository in discovery.get("repositories", [])
+        if repository.get("linked_repository_candidates")
+    ]
+    cautions = [
+        {
+            "source_id": repository["source_id"],
+            "items": _sample(repository.get("scope_warnings", []), 5),
+        }
+        for repository in discovery.get("repositories", [])
+        if repository.get("scope_warnings")
+    ]
+
+    return {
+        "headline": "What I found",
+        "agreement_copy": (
+            "These are working assumptions from the repo, not the final playbook. "
+            "Pick Yes below to continue with them, or pick No and add short corrections."
+        ),
+        "product": {
+            "looks_like": surfaces or ["unknown"],
+            "summary": _role_label(surfaces) if surfaces else "unknown",
+        },
+        "folders_and_repos": folders,
+        "existing_playbook": _sample(drafts, 5),
+        "suggested_save_location": discovery.get("recommended_output_dir"),
+        "product_roles": _sample(product_roles, 8),
+        "screens_that_change_by_width": _sample(viewport_areas, 8),
+        "permission_checks": _sample(permission_checks, 8),
+        "related_folders": linked,
+        "cautions": cautions,
+    }
+
+
+def _choice(key: str, label: str, *, recommended: bool = False, needs_text: bool = False) -> dict[str, Any]:
+    item: dict[str, Any] = {"key": key, "label": label}
+    if recommended:
+        item["recommended"] = True
+    if needs_text:
+        item["needs_text"] = True
+    return item
+
+
+def build_intake(
+    discovery: dict[str, Any],
+    *,
+    intent: str,
+    defaulted_source_to_cwd: bool,
+) -> dict[str, Any]:
+    assumptions = build_working_assumptions(discovery)
+    has_playbook = bool(assumptions["existing_playbook"])
+    suggested = assumptions.get("suggested_save_location")
+    action_recommended = "A" if has_playbook else "B"
+    save_recommended = "A"
+
+    folder_choices = [
+        _choice("A", "All folders listed above", recommended=True),
+    ]
+    # Reserve B..Y for individual folders when the user wants a subset.
+    next_key = ord("B")
+    for folder in assumptions["folders_and_repos"]:
+        if next_key >= ord("Z"):
+            break
+        folder_choices.append(
+            _choice(
+                chr(next_key),
+                f"Only {folder['name']} ({folder['what_it_is']})",
+            )
+        )
+        next_key += 1
+    folder_choices.append(
+        _choice("Z", "Add another folder or Git URL", needs_text=True)
+    )
+
+    save_choices: list[dict[str, Any]] = []
+    if has_playbook:
+        save_choices.append(
+            _choice("A", "Use the existing playbook path", recommended=True)
+        )
+        save_choices.append(
+            _choice(
+                "B",
+                f"Use the suggested path: {suggested}"
+                if suggested
+                else "Use the suggested path",
+            )
+        )
+        save_choices.append(_choice("C", "Somewhere else", needs_text=True))
+    else:
+        save_choices.append(
+            _choice(
+                "A",
+                f"Use the suggested path: {suggested}"
+                if suggested
+                else "Use the suggested path",
+                recommended=True,
+            )
+        )
+        save_choices.append(_choice("B", "Somewhere else", needs_text=True))
+
     questions: list[dict[str, Any]] = [
         {
-            "id": "confirm_source_addresses",
+            "id": "approve_or_correct_findings",
             "required": True,
-            "prompt": (
-                "Are these the correct local and remote addresses for the repositories currently "
-                "in scope?"
-            ),
-            "sources": discovery.get("source_addresses", []),
+            "prompt": "Does this look right?",
+            "selection": "single",
+            "choices": [
+                _choice("A", "Yes, continue with these findings", recommended=True),
+                _choice("B", "No, I will correct them in this reply", needs_text=True),
+            ],
+            "recommended": "A",
         },
         {
-            "id": "confirm_source_roles",
+            "id": "choose_action",
             "required": True,
-            "prompt": (
-                "Are these repository roles correct, including product, documentation, API, RAG, "
-                "worker, integration, SDK, helper-library, contract, and tooling roles?"
-            ),
-            "assumptions": role_assumptions,
+            "prompt": "What should I do?",
+            "selection": "single",
+            "choices": [
+                _choice(
+                    "A",
+                    "Update the existing playbook",
+                    recommended=has_playbook,
+                ),
+                _choice(
+                    "B",
+                    "Create a new playbook",
+                    recommended=not has_playbook,
+                ),
+                _choice("C", "Review only (no file changes)"),
+                _choice("D", "Run checks against the live product"),
+            ],
+            "recommended": action_recommended,
+        },
+        {
+            "id": "choose_folders",
+            "required": True,
+            "prompt": "Which folders should I use?",
+            "selection": "single_or_multi",
+            "choices": folder_choices,
+            "recommended": "A",
+        },
+        {
+            "id": "choose_save_location",
+            "required": True,
+            "prompt": "Where should the playbook live?",
+            "selection": "single",
+            "choices": save_choices,
+            "recommended": save_recommended,
         },
     ]
-    drafts = discovery.get("existing_playbook_candidates", [])
-    linked_drafts = discovery.get("linked_playbook_candidates", [])
-    prior_work = discovery.get("prior_work_candidates", [])
-    if drafts or linked_drafts or prior_work:
+
+    recommended_letters = [
+        "A",
+        action_recommended,
+        "A",
+        save_recommended,
+    ]
+
+    if assumptions["related_folders"]:
         questions.append(
             {
-                "id": "continue_previous_work",
+                "id": "include_related_folders",
                 "required": True,
-                "prompt": (
-                    "I found evidence of previous playbook, QA, scenario, report, or state work. "
-                    "Should I continue the existing canonical path and add to it?"
-                ),
-                "continuation_suggestion": discovery.get("continuation_suggestion"),
-                "playbook_candidates": [*drafts, *linked_drafts],
-                "prior_work_sample": prior_work[:25],
-            }
-        )
-    if discovery.get("evidence_summary", {}).get("linked_repository_candidates"):
-        questions.append(
-            {
-                "id": "include_linked_repositories",
-                "required": True,
-                "prompt": (
-                    "I found linked or nested repositories. Which should be added as independent "
-                    "evidence sources with stable source IDs?"
-                ),
-                "candidates": [
-                    {
-                        "source_id": repository["source_id"],
-                        "repositories": repository.get(
-                            "linked_repository_candidates", []
-                        ),
-                    }
-                    for repository in discovery.get("repositories", [])
-                    if repository.get("linked_repository_candidates")
+                "prompt": "Include related folders?",
+                "selection": "single",
+                "choices": [
+                    _choice("A", "Include none", recommended=True),
+                    _choice("B", "Include some", needs_text=True),
                 ],
+                "recommended": "A",
             }
         )
-    if discovery.get("evidence_summary", {}).get("scope_warnings"):
+        recommended_letters.append("A")
+    if assumptions["cautions"]:
         questions.append(
             {
-                "id": "confirm_product_scope",
+                "id": "handle_cautions",
                 "required": True,
-                "prompt": (
-                    "Repository instructions describe mock, fixture, generated, or unavailable "
-                    "source. What is the intended real product scope?"
-                ),
-                "warnings": [
-                    {
-                        "source_id": repository["source_id"],
-                        "items": repository.get("scope_warnings", []),
-                    }
-                    for repository in discovery.get("repositories", [])
-                    if repository.get("scope_warnings")
+                "prompt": "Mocks, fixtures, or generated copies?",
+                "selection": "single",
+                "choices": [
+                    _choice("A", "Leave them out", recommended=True),
+                    _choice("B", "Include some anyway", needs_text=True),
                 ],
+                "recommended": "A",
             }
         )
-    if intent == "auto":
-        questions.append(
-            {
-                "id": "choose_action",
-                "required": True,
-                "prompt": (
-                    "Do you want an audit only, a focused edit or reconciliation, a new playbook, "
-                    "or verification through tests and supported interfaces?"
-                ),
-            }
-        )
+        recommended_letters.append("A")
+
+    recommended_reply = " ".join(recommended_letters)
+
+    # Keep legacy assumption keys for older agents while preferring working_assumptions.
+    role_assumptions = [
+        {
+            "source_id": folder["name"],
+            "kind": folder["kind"],
+            "assumed_roles": [folder["what_it_is"]],
+        }
+        for folder in assumptions["folders_and_repos"]
+    ]
 
     return {
         "intent": intent,
         "defaulted_source_to_current_directory": defaulted_source_to_cwd,
         "requires_user_confirmation": intent == "auto",
+        "working_assumptions": assumptions,
         "source_role_assumptions": role_assumptions,
         "canonical_output_assumption": {
             "decision": discovery.get("output_decision"),
@@ -211,6 +393,39 @@ def build_intake(
         "continuation_assumption": discovery.get("continuation_suggestion"),
         "evidence_summary": discovery.get("evidence_summary", {}),
         "questions": questions,
+        "recommended_reply": recommended_reply,
+        "reply_hint": (
+            f"Reply with option letters only, like: {recommended_reply}\n"
+            "Or reply: recommended"
+        ),
+        "ux": {
+            "prefer_structured_polls": True,
+            "fallback": "lettered_menu",
+            "accept_recommended_alias": True,
+            "minimize_free_text": True,
+            "free_text_only_when": "needs_text choice is selected",
+        },
+        "presentation_notes": [
+            "Show What I found first.",
+            "Prefer harness polls or multi-select when available. Pre-select recommended answers.",
+            "If no poll UI exists, show one lettered menu and ask for letters only.",
+            f"Show Recommended: {recommended_reply}",
+            "Accept the bare word recommended as the full recommended reply.",
+            "Do not ask the user to write sentences when a letter will do.",
+            "Never ask the user about digests, fingerprints, hashes, or session IDs.",
+        ],
+        "plan_gate_choices": [
+            _choice("A", "Approve the plan", recommended=True),
+            _choice("B", "Adjust the plan", needs_text=True),
+            _choice("C", "Review only (do not write files)"),
+        ],
+        "after_plan_choices": [
+            _choice("A", "Stop here", recommended=True),
+            _choice("B", "Quick smoke check while writing"),
+            _choice("C", "Full product check → findings folder"),
+            _choice("D", "Export PDF"),
+            _choice("E", "Export HTML"),
+        ],
     }
 
 

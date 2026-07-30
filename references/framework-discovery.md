@@ -258,8 +258,15 @@ When evidence exists, look for:
 - IdP configuration names visible to testers (not secret values)
 - Role and permission matrices asserted in tests
 - Login, logout, refresh, invite, and account-switch journeys
+- Seed data, factories, enums, and schema constraints that name product roles
+- Permission gates, route guards, and authorize helpers
+
+Discovery may list `auth_role_candidates` and `auth_gate_candidates`. Show them in Intake as
+working assumptions to approve or correct. A database or enum name is only a candidate until a
+tester has a disposable account or setup path.
 
 Publish only steps a tester can perform on a supported interface. Never publish client secrets.
+Never invent roles the user did not confirm.
 
 ## Webhooks and async delivery
 

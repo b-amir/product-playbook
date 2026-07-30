@@ -252,8 +252,50 @@ class DiscoveryTests(unittest.TestCase):
                 report["evidence_summary"]["viewport_fork_candidates"], 1
             )
             self.assertTrue(
-                any("Viewport-fork signals" in note for note in report["notes"])
+                any("phone and desktop" in note.lower() for note in report["notes"])
             )
+
+    def test_auth_role_candidates_appear_in_intake_assumptions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write(
+                root / "package.json",
+                """
+                {
+                  "dependencies": {
+                    "express": "1"
+                  }
+                }
+                """,
+            )
+            write(
+                root / "src" / "roles.ts",
+                """
+                export enum Role {
+                  Admin = 'admin',
+                  Member = 'member',
+                }
+                export function requireRole(role: Role) {
+                  return role === Role.Admin
+                }
+                """,
+            )
+            report = json.loads(
+                run_script(
+                    "bootstrap_playbook.py",
+                    "--source",
+                    f"api={root}",
+                    "--output-dir",
+                    str(root / "docs" / "playbook"),
+                ).stdout
+            )
+            assumptions = report["intake"]["working_assumptions"]
+            role_paths = {item["where"] for item in assumptions["product_roles"]}
+            gate_paths = {item["where"] for item in assumptions["permission_checks"]}
+            self.assertTrue(role_paths or gate_paths)
+            self.assertIn("approve_or_correct_findings", {
+                question["id"] for question in report["intake"]["questions"]
+            })
 
     def test_mixed_repository_keeps_all_surfaces(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -396,9 +438,26 @@ class DiscoveryTests(unittest.TestCase):
             question_ids = {
                 question["id"] for question in report["intake"]["questions"]
             }
-            self.assertIn("confirm_source_addresses", question_ids)
-            self.assertIn("confirm_source_roles", question_ids)
+            self.assertIn("approve_or_correct_findings", question_ids)
             self.assertIn("choose_action", question_ids)
+            self.assertIn("choose_folders", question_ids)
+            self.assertIn("choose_save_location", question_ids)
+            assumptions = report["intake"]["working_assumptions"]
+            self.assertEqual(assumptions["headline"], "What I found")
+            self.assertIn("Yes", assumptions["agreement_copy"])
+            self.assertTrue(assumptions["folders_and_repos"])
+            self.assertTrue(report["intake"]["recommended_reply"])
+            self.assertIn("letters only", report["intake"]["reply_hint"].lower())
+            first_question = report["intake"]["questions"][0]
+            self.assertEqual(first_question["choices"][0]["key"], "A")
+            self.assertTrue(first_question["choices"][0]["recommended"])
+            self.assertTrue(report["intake"]["ux"]["prefer_structured_polls"])
+            self.assertTrue(
+                any("letters only" in note.lower() for note in report["intake"]["presentation_notes"])
+            )
+            self.assertTrue(
+                any("Never ask" in note for note in report["intake"]["presentation_notes"])
+            )
 
             explicit = json.loads(
                 run_script(

@@ -71,9 +71,12 @@ python3 <skill-dir>/scripts/bootstrap_playbook.py \
   --intent auto
 ```
 
-Present the **Intake Card** and **one poll round** per
-[references/intake.md](references/intake.md). Prefer the harness structured-choice UI;
-fall back to one numbered list. Stop until the user answers.
+Present the **Intake Card** and **one confirmation round** per
+[references/intake.md](references/intake.md). Lead with **What I found**. Prefer harness
+polls with recommended answers pre-selected. If polls are unavailable, show one lettered
+menu and ask for letters only (`A A A` or `recommended`). Stop until the user answers.
+Never ask the user about digests, fingerprints, or session IDs. Never ask them to write
+sentences when a letter will do.
 
 Destination policy: explicit `output_dir` / `draft_path` → unique discovered playbook →
 propose `<source>/docs/playbook` when one local code source → else ask.

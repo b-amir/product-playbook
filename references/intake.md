@@ -1,56 +1,174 @@
-# Intake polls
+# Intake confirmation
 
-Bundle these into one confirmation round after the Intake Card. Use the harness choice UI
-when available; otherwise a single numbered list.
+One confirmation round after discovery. No writes until the user answers.
 
-## Poll 1 — What should this run do?
+Goal: the user should almost never type free text. They pick options.
 
-1. Create a new playbook
-2. Continue / reconcile an existing playbook
-3. Audit only (no Markdown or state writes)
-4. Agent-check only (exercise the product; write findings; do not edit the playbook unless asked)
+## How to ask (required)
 
-## Poll 2 — Which roots are in scope?
+1. Prefer the harness structured choice UI when it exists (polls, multi-select,
+   AskUserQuestion, Codex / Claude / OpenCode choice widgets).
+2. Pre-select or mark the recommended answers in that UI.
+3. If no structured UI exists, show one compact lettered menu and ask for a
+   single reply of letters only.
 
-Multi-select discovered local roots and sanitized remotes. Offer “add another path or Git URL.”
+Never split Intake into many turns when one round is enough.
 
-## Poll 3 — Where is the canonical playbook?
+Do not ask about digests, fingerprints, state hashes, session IDs, portable
+locators, or other machine metadata.
 
-1. Each discovered playbook candidate
-2. The mechanical default (for example `<source>/docs/playbook`) when applicable
-3. Custom path (user supplies it)
+## Reply rules for the user
 
-On reconcile, default to the existing canonical path when state and draft agree.
+Tell them exactly how to answer:
 
-## Poll 4 — Roles and product boundary
+```text
+Reply with option letters only, like: A A A
+Recommended: A A A
+```
 
-1. Accept assumed roles
-2. Edit the role map (user corrects)
-3. Exclude one or more roots from this product
+Rules:
 
-## Poll 5 — After Plan, what else?
+- One letter per question, in order.
+- Multi-select questions may use several letters for that question, like `BC`.
+- Free text is allowed only after choosing an option that says so
+  (for example B = Corrections, or C = Somewhere else).
+- If they reply with only `A A A` or `recommended`, use every recommended choice.
 
-Asked after Plan approval (or immediately in Agent-check-only mode):
+## What I found
 
-1. Nothing else this run
-2. Read-only smoke / live interface check as part of Write or Agent-check
-3. Full Agent-check (tests + live interfaces when safe) → findings sibling folder
-4. Export PDF
-5. Export HTML
+Show only what discovery found. Skip empty sections.
+
+| Section | Plain language |
+| --- | --- |
+| Product | What kind of product this looks like |
+| Folders | What we will use, and what each one is for |
+| Existing playbook | Where a playbook already lives, if any |
+| Save location | Where the playbook would go |
+| Product roles | Account types we think exist |
+| Width-sensitive screens | Places phone and desktop may differ |
+| Permission checks | Places access may change by role |
+| Related folders | Nested or linked repos we noticed |
+| Caution | Things that look like mocks or generated copies |
+
+Then ask question 0 first:
+
+### 0. Does this look right?
+
+- A. Yes, continue with these findings `(recommended)`
+- B. No, I will correct them in this reply
+
+If they pick B, they may write short corrections after the letters.
+Do not make them rewrite the whole card.
+
+## Questions
+
+Ask only needed decisions. Bundle them in one round. Mark exactly one recommended
+choice per single-select question.
+
+### 1. What should I do?
+
+- A. Update the existing playbook `(recommended when a playbook exists)`
+- B. Create a new playbook `(recommended when no playbook exists)`
+- C. Review only (no file changes)
+- D. Run checks against the live product
+
+### 2. Which folders should I use?
+
+- A. All folders listed above `(recommended)`
+- B / C / … one letter per listed folder for a custom subset
+- Z. Add another folder or Git URL `(then paste the path after your letters)`
+
+### 3. Where should the playbook live?
+
+- A. Use the existing playbook path `(recommended when one exists)`
+- B. Use the suggested path `(recommended when creating)`
+- C. Somewhere else `(then paste the path after your letters)`
+
+### Optional (same round, only when needed)
+
+Related folders:
+
+- A. Include none `(recommended)`
+- B. Include some `(then list names after your letters)`
+
+Caution items:
+
+- A. Leave them out `(recommended)`
+- B. Include some anyway `(then list names after your letters)`
+
+## Fallback menu shape
+
+When there is no structured UI, render exactly this pattern:
+
+```text
+## What I found
+...short bullets...
+
+## Choose (reply with letters only)
+Recommended: A A A
+
+0. Does this look right?
+   A. Yes, continue with these findings (recommended)
+   B. No, I will correct them in this reply
+
+1. What should I do?
+   A. Update the existing playbook (recommended)
+   B. Create a new playbook
+   C. Review only (no file changes)
+   D. Run checks against the live product
+
+2. Which folders should I use?
+   A. All folders listed above (recommended)
+   Z. Add another folder or Git URL
+
+3. Where should the playbook live?
+   A. Use the existing playbook path (recommended)
+   B. Use the suggested path: docs/playbook
+   C. Somewhere else
+
+Reply like: A A A
+Or: recommended
+```
+
+Adapt letters and recommendations to what discovery found. Keep the reply line.
+
+## After Plan approval
+
+Same pick-only rule. Mark a recommendation.
+
+- A. Stop here `(recommended)`
+- B. Quick smoke check while writing
+- C. Full product check → findings folder
+- D. Export PDF
+- E. Export HTML
+
+Multi-select is allowed here when the harness supports it. In text fallback, accept
+several letters such as `C D`.
+
+## Plan gate
+
+Also pick-only:
+
+- A. Approve the plan `(recommended)`
+- B. Adjust the plan `(then write the changes)`
+- C. Review only (do not write files)
 
 ## First-run vs later runs
 
-| Situation | Intake emphasis |
+| Situation | Emphasis |
 | --- | --- |
-| No playbook | Full card + polls 1–4; propose destination |
-| Playbook + state | Reconcile Summary first; light card; poll 1; expand roots if newly available |
-| Playbook, no state | Treat as first reconciliation; full factual audit before reuse |
-| Partial team access | Contribution scope; never remove OOS scenarios |
-| Unified docs repo | Prefer that docs root as canonical destination |
+| No playbook | Full What I found + questions 0–3 |
+| Playbook + state | Short what changed + light What I found + question 1 at minimum |
+| Playbook, no state | Full review before reuse |
+| Partial access | Say what you can reach. Do not delete unseen sections |
+| Docs repo present | Prefer that docs folder as the save location |
 
 ## Anti-patterns
 
-- Asking polls one-at-a-time across many turns without need
-- Writing before poll answers
-- Re-running Create when Continue is clearly appropriate without asking
-- Forking a second playbook for the same product because another repo joined
+- Asking the user to write sentences when a letter would do
+- Hiding the recommended answer
+- Forcing free-text paths when a discovered path exists
+- Asking one question per turn
+- Writing before answers
+- Surfacing digests, hashes, fingerprints, or session IDs
+- Creating a second playbook for the same product because another repo joined

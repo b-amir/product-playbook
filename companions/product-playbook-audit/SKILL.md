@@ -16,7 +16,8 @@ explicitly switches mode.
 ## Steps
 
 1. Run bootstrap / inventory with `--check-state` (add `--drift` for CI exit codes).
-2. Present Intake Card lightly + Reconcile Summary.
+2. Present a light Intake Card with **What I found** plus a short What changed summary.
+   Ask the user to approve or correct assumptions before reporting drift.
 3. Report Keep / Update / Add / Remove / Needs evidence — do not patch.
 4. Emit End Report with `Mode: audit`.
 

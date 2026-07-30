@@ -16,8 +16,8 @@ Task progress:
 
 Hard stops:
 
-1. After Intake polls until the user answers.
-2. After Plan until the user Approves, Adjusts, or chooses Audit-only.
+1. After Intake choices until the user answers (letters or structured picks).
+2. After Plan until the user picks Approve, Adjust, or Review only.
 3. After Write, stop unless they ask for Export or Agent-check.
 
 Audit-only skips Write. Agent-check-only may skip Write when a playbook already exists.
@@ -25,35 +25,44 @@ Export and Agent-check never run by default.
 
 ## Confirmations across harnesses
 
-Prefer the richest structured choice UI the current agent offers (polls, multi-select,
-AskUserQuestion, Codex/Claude/OpenCode choice widgets, and similar).
+Make answering easy. Prefer picking over typing.
 
-If no structured UI exists, present the same options as a compact numbered or lettered list
-and ask the user to reply with their selections in one message. Never ask the five intake
-polls as five separate turns when one bundled round is enough.
+1. Prefer the richest structured choice UI the current agent offers (polls, multi-select,
+   AskUserQuestion, Codex/Claude/OpenCode choice widgets, and similar).
+2. Pre-select or clearly mark the recommended answers.
+3. If no structured UI exists, show one lettered menu. Ask for option letters only.
+4. Accept `recommended` as a full accept of every recommended choice.
+5. Allow free text only after the user picks an option that needs it.
+
+Never split Intake into many turns when one round is enough.
+Never ask the user to write sentences when a letter will do.
 
 ## Phase 1 — Intake Card (required slots)
 
-Fill every slot. Lead with product shape. Do not dump freeform discovery essays.
+Fill every slot that has evidence. Lead with product shape. Do not dump freeform discovery essays.
+Do not show digests, fingerprints, hashes, or session IDs to the user.
 
-1. **Product shape** — surfaces detected and confidence (mixed is allowed)
-2. **Roots** — in-scope local roots and sanitized remotes
-3. **Roles** — assumed role per root (product, docs, frontend, API, worker, RAG, …)
-4. **Evidence hits** — counts or short lists: contracts, tests, docs, runtime URLs, prior work
-5. **Prior playbook** — path and whether portable state exists
-6. **Proposed canonical path** — proposal only until confirmed
-7. **Polls** — see [intake.md](intake.md)
+1. **Product** — what kind of product this looks like (mixed is allowed)
+2. **Folders and repos** — what we will use, and what each one is for
+3. **Existing playbook** — path if one already exists
+4. **Suggested save location** — proposal only until confirmed
+5. **What I found** — working assumptions to approve or correct:
+   - product roles / account types (when found)
+   - screens that may change by width (when found)
+   - permission checks (when found)
+   - related folders and cautions (when found)
+6. **Questions** — lettered choices with a recommended reply. See [intake.md](intake.md)
 
-On second and later runs, open with a **Reconcile Summary** before the full card when state
-exists:
+Ask the user to reply with letters only, like `A A A`, or `recommended`.
+Free text only if they pick a choice that needs it.
 
-- state digest
-- changed sources
-- impacted vs reusable vs preserved-out-of-scope counts
-- contribution vs full recommendation
+On second and later runs, open with a short **What changed** summary when state exists:
 
-Skip re-asking the destination when state and draft agree, unless the user chose Create or
-there is a path conflict.
+- which sources changed
+- how many scenarios look impacted vs reusable vs left alone
+- whether this should be a partial update or a full pass
+
+Keep machine digests out of that summary. Use them only inside scripts.
 
 ## Phase 2 — Plan
 
@@ -67,8 +76,14 @@ When viewport-sensitivity evidence exists for a scenario, put `viewport: yes` an
 hint in Notes (for example `matchMedia in permission gate`). Omit that flag when there is no
 viewport fork for the journey. Do not mark every browser scenario viewport-sensitive.
 
-Include contribution boundary and approximate tester time. Wait for Approve / Adjust /
-Audit-only.
+Include contribution boundary and approximate tester time.
+Ask for a pick-only Plan gate:
+
+- A. Approve the plan `(recommended)`
+- B. Adjust the plan
+- C. Review only (do not write files)
+
+Accept `A` or `recommended`.
 
 **Propose-only:** when the user wants a review gate, write the validated plan JSON (and
 optional patch notes) to a path they choose. Do not write playbook Markdown or state until

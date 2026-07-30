@@ -42,7 +42,7 @@ Works with Cursor, Claude Code, Codex, OpenCode, Gemini CLI, and GitHub Copilot 
 
 Every agent follows the same protocol: **Intake → Plan → Write**, then optional Export or Agent-check.
 
-1. **Intake** — discover product shape, roots, remotes, contracts, and prior playbooks. One confirmation round (structured choices when the agent has them).
+1. Intake — discover the product, show what we found, and confirm with polls or letter picks before any write.
 2. **Plan** — Keep / Update / Add table. No Markdown writes until you approve.
 3. **Write** — tester-facing chapters + one `.product-playbook-state.json`.
 4. **Opt-in** — PDF/HTML export, or Agent-check findings in `playbook-findings/`.
