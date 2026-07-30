@@ -194,10 +194,7 @@ def build_working_assumptions(discovery: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "headline": "What I found",
-        "agreement_copy": (
-            "These are working assumptions from the repo, not the final playbook. "
-            "Pick Yes below to continue with them, or pick No and add short corrections."
-        ),
+        "agreement_copy": "Correct me if I'm wrong.",
         "product": {
             "looks_like": surfaces or ["unknown"],
             "summary": _role_label(surfaces) if surfaces else "unknown",
@@ -270,9 +267,7 @@ def build_findings_copy(assumptions: dict[str, Any]) -> dict[str, str]:
         else "none found"
     )
     product = (assumptions.get("product") or {}).get("summary") or "unknown"
-    agreement = assumptions.get("agreement_copy") or (
-        "These are working assumptions from the repo, not the final playbook."
-    )
+    agreement = assumptions.get("agreement_copy") or "Correct me if I'm wrong."
 
     chat_block = "\n".join(
         [
@@ -289,14 +284,11 @@ def build_findings_copy(assumptions: dict[str, Any]) -> dict[str, str]:
             f"| Permission checks | {gate_text} |",
             "",
             agreement,
-            "Review the table, then answer the questions.",
         ]
     )
-    # Poll UIs often flatten newlines. Keep this one short line.
-    prompt = "Do the findings above look right?"
     return {
         "chat_block": chat_block,
-        "question_prompt": prompt,
+        "disclaimer": agreement,
     }
 
 
@@ -360,17 +352,6 @@ def build_intake(
 
     questions: list[dict[str, Any]] = [
         {
-            "id": "approve_or_correct_findings",
-            "required": True,
-            "prompt": findings_copy["question_prompt"],
-            "selection": "single",
-            "choices": [
-                _choice("A", "Yes, continue with these findings", recommended=True),
-                _choice("B", "No, I will correct them after submitting", needs_text=True),
-            ],
-            "recommended": "A",
-        },
-        {
             "id": "choose_action",
             "required": True,
             "prompt": "What should I do?",
@@ -410,7 +391,6 @@ def build_intake(
     ]
 
     recommended_letters = [
-        "A",
         action_recommended,
         "A",
         save_recommended,
@@ -459,13 +439,33 @@ def build_intake(
         for folder in assumptions["folders_and_repos"]
     ]
 
+    choice_lines = [
+        "## Choose (reply with letters only)",
+        f"Recommended: {recommended_reply}",
+        "",
+    ]
+    for index, question in enumerate(questions, start=1):
+        choice_lines.append(f"{index}. {question['prompt']}")
+        for choice in question["choices"]:
+            marker = " (recommended)" if choice.get("recommended") else ""
+            choice_lines.append(f"   {choice['key']}. {choice['label']}{marker}")
+        choice_lines.append("")
+    choice_lines.extend(
+        [
+            f"Reply like: {recommended_reply}",
+            "Or: recommended",
+        ]
+    )
+    choices_block = "\n".join(choice_lines)
+    intake_message = f"{findings_copy['chat_block']}\n\n{choices_block}\n"
+
     return {
         "intent": intent,
         "defaulted_source_to_current_directory": defaulted_source_to_cwd,
         "requires_user_confirmation": intent == "auto",
         "working_assumptions": assumptions,
         "findings_chat_block": findings_copy["chat_block"],
-        "findings_question_prompt": findings_copy["question_prompt"],
+        "intake_message": intake_message,
         "source_role_assumptions": role_assumptions,
         "canonical_output_assumption": {
             "decision": discovery.get("output_decision"),
@@ -480,19 +480,20 @@ def build_intake(
             "Or reply: recommended"
         ),
         "ux": {
-            "prefer_structured_polls": True,
+            "prefer_structured_polls": False,
+            "intake_uses_polls": False,
+            "intake_format": "single_chat_message",
+            "polls_allowed_for": ["plan_gate", "after_plan"],
             "fallback": "lettered_menu",
             "accept_recommended_alias": True,
             "minimize_free_text": True,
-            "free_text_only_when": "needs_text choice is selected",
+            "free_text_only_when": "needs_text choice is selected or table corrections",
         },
         "presentation_notes": [
-            "HARD RULE: print findings_chat_block in chat BEFORE opening any poll UI.",
-            "HARD RULE: findings_chat_block is a markdown table. Do not reformat it into one line.",
-            "HARD RULE: question 0 prompt must stay short (findings_question_prompt). Never paste the table into the poll.",
-            "Poll UIs flatten newlines. Long findings in the prompt become unreadable.",
-            "Prefer harness polls when available. Pre-select recommended answers.",
-            "If no poll UI exists, show the table plus one lettered menu and ask for letters only.",
+            "HARD RULE: Intake uses NO polls and NO AskQuestion widgets.",
+            "HARD RULE: Print intake_message as one chat message (table + disclaimer + lettered choices).",
+            "Do not open a choice UI for Intake. Polls hide the findings table.",
+            "Polls are allowed later for plan_gate and after_plan only.",
             f"Show Recommended: {recommended_reply}",
             "Accept the bare word recommended as the full recommended reply.",
             "Do not ask the user to write sentences when a letter will do.",

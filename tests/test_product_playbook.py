@@ -293,9 +293,11 @@ class DiscoveryTests(unittest.TestCase):
             role_paths = {item["where"] for item in assumptions["product_roles"]}
             gate_paths = {item["where"] for item in assumptions["permission_checks"]}
             self.assertTrue(role_paths or gate_paths)
-            self.assertIn("approve_or_correct_findings", {
+            self.assertIn("choose_action", {
                 question["id"] for question in report["intake"]["questions"]
             })
+            self.assertFalse(report["intake"]["ux"]["intake_uses_polls"])
+            self.assertIn("Correct me if I'm wrong.", report["intake"]["intake_message"])
 
     def test_mixed_repository_keeps_all_surfaces(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -438,37 +440,29 @@ class DiscoveryTests(unittest.TestCase):
             question_ids = {
                 question["id"] for question in report["intake"]["questions"]
             }
-            self.assertIn("approve_or_correct_findings", question_ids)
+            self.assertNotIn("approve_or_correct_findings", question_ids)
             self.assertIn("choose_action", question_ids)
             self.assertIn("choose_folders", question_ids)
             self.assertIn("choose_save_location", question_ids)
             assumptions = report["intake"]["working_assumptions"]
             self.assertEqual(assumptions["headline"], "What I found")
-            self.assertIn("Yes", assumptions["agreement_copy"])
+            self.assertEqual(assumptions["agreement_copy"], "Correct me if I'm wrong.")
             self.assertTrue(assumptions["folders_and_repos"])
             self.assertTrue(report["intake"]["recommended_reply"])
             self.assertIn("letters only", report["intake"]["reply_hint"].lower())
             self.assertIn("## What I found", report["intake"]["findings_chat_block"])
             self.assertIn("| Item | Value |", report["intake"]["findings_chat_block"])
+            self.assertIn("Correct me if I'm wrong.", report["intake"]["findings_chat_block"])
+            self.assertIn("## Choose", report["intake"]["intake_message"])
+            self.assertIn("Correct me if I'm wrong.", report["intake"]["intake_message"])
+            self.assertFalse(report["intake"]["ux"]["intake_uses_polls"])
+            self.assertFalse(report["intake"]["ux"]["prefer_structured_polls"])
             self.assertEqual(
-                report["intake"]["findings_question_prompt"],
-                "Do the findings above look right?",
-            )
-            first_question = report["intake"]["questions"][0]
-            self.assertEqual(
-                first_question["prompt"],
-                "Do the findings above look right?",
-            )
-            self.assertNotIn("Product:", first_question["prompt"])
-            self.assertEqual(first_question["choices"][0]["key"], "A")
-            self.assertTrue(first_question["choices"][0]["recommended"])
-            self.assertTrue(report["intake"]["ux"]["prefer_structured_polls"])
-            self.assertTrue(
-                any("BEFORE opening" in note for note in report["intake"]["presentation_notes"])
+                report["intake"]["ux"]["polls_allowed_for"],
+                ["plan_gate", "after_plan"],
             )
             self.assertTrue(
-                any("Never paste" in note or "flatten" in note.lower()
-                    for note in report["intake"]["presentation_notes"])
+                any("NO polls" in note for note in report["intake"]["presentation_notes"])
             )
 
             explicit = json.loads(

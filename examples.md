@@ -112,7 +112,7 @@ Do not add **Across viewports** to scenarios without viewport-fork evidence.
 | Preserved OOS | PAY-01–PAY-06 | payments source not in scope |
 ```
 
-## Intake: What I found (chat only)
+## Intake: What I found (chat only — no polls)
 
 ```markdown
 ## What I found
@@ -127,19 +127,31 @@ Do not add **Across viewports** to scenarios without viewport-fork evidence.
 | Width-sensitive screens | PermissionGate.tsx |
 | Permission checks | requireRole on settings |
 
-These are working assumptions from the repo, not the final playbook.
-Review the table, then answer the questions.
+Correct me if I'm wrong.
+
+## Choose (reply with letters only)
+Recommended: A A A
+
+1. What should I do?
+   A. Update the existing playbook (recommended)
+   B. Create a new playbook
+   C. Review only (no file changes)
+   D. Run checks against the live product
+
+2. Which folders should I use?
+   A. All folders listed above (recommended)
+   Z. Add another folder or Git URL
+
+3. Where should the playbook live?
+   A. Use the existing playbook path (recommended)
+   B. Use the suggested path: docs/playbook
+   C. Somewhere else
+
+Reply like: A A A
+Or: recommended
 ```
 
-Then open polls. Question 0 stays short:
-
-```text
-Do the findings above look right?
-A. Yes, continue with these findings (recommended)
-B. No, I will correct them after submitting
-```
-
-Never paste the table into the poll prompt.
+Do not open a poll UI for this step.
 
 ## Forbidden in published Markdown
 

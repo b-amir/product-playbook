@@ -17,7 +17,7 @@ Build one canonical **tester-facing** Markdown playbook from runtime evidence fo
 product shape (web, API, CLI, worker, RAG, mobile, SDK, mixed, monorepo, or multi-repo).
 
 Follow [references/run-protocol.md](references/run-protocol.md) on every run. Same phases,
-Intake Card, polls, Plan gate, and End Report — every harness.
+Intake Card (text only, no polls), Plan gate, and End Report — every harness.
 
 ## Non-negotiables
 
@@ -33,7 +33,7 @@ Intake Card, polls, Plan gate, and End Report — every harness.
 ## Task progress (copy each run)
 
 ```text
-- [ ] 1. Intake (bootstrap; Intake Card + polls; no writes)
+- [ ] 1. Intake (bootstrap; What I found + lettered choices in one chat message; no writes)
 - [ ] 2. Plan (Keep/Update/Add/… table; wait for approval)
 - [ ] 3. Write (patch/render → validate → state → End Report)
 - [ ] 4a. Export PDF/HTML (only if asked)
@@ -71,19 +71,16 @@ python3 <skill-dir>/scripts/bootstrap_playbook.py \
   --intent auto
 ```
 
-Present the **Intake Card** and **one confirmation round** per
-[references/intake.md](references/intake.md).
+Present Intake as **one chat message** per [references/intake.md](references/intake.md).
 
-Hard rule: print **What I found** (`intake.findings_chat_block`) as a formatted markdown
-table in chat **before** opening any poll UI. Keep question 0 short
-(`intake.findings_question_prompt` = “Do the findings above look right?”).
-Never paste the findings table into the poll prompt. Poll UIs flatten newlines and make
-that unreadable.
+Hard rule: **no polls / AskQuestion for Intake.** Print `intake.intake_message` (or build the
+same shape from `findings_chat_block` + lettered questions). That message has the findings
+table, `Correct me if I'm wrong.`, and the lettered choices with a recommended reply.
 
-Prefer harness polls with recommended answers pre-selected. If polls are unavailable, show one
-lettered menu and ask for letters only (`A A A` or `recommended`). Stop until the user answers.
-Never ask the user about digests, fingerprints, or session IDs. Never ask them to write
-sentences when a letter will do.
+Polls are allowed later only for Plan approve and after-Plan picks (no table to confirm).
+Stop until the user answers with letters or `recommended`.
+Never ask about digests, fingerprints, or session IDs.
+Never ask them to write sentences when a letter will do.
 
 Destination policy: explicit `output_dir` / `draft_path` → unique discovered playbook →
 propose `<source>/docs/playbook` when one local code source → else ask.

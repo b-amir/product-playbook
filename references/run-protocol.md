@@ -16,7 +16,7 @@ Task progress:
 
 Hard stops:
 
-1. After Intake choices until the user answers (letters or structured picks).
+1. After Intake until the user answers with letters (or `recommended`).
 2. After Plan until the user picks Approve, Adjust, or Review only.
 3. After Write, stop unless they ask for Export or Agent-check.
 
@@ -27,15 +27,19 @@ Export and Agent-check never run by default.
 
 Make answering easy. Prefer picking over typing.
 
-1. Prefer the richest structured choice UI the current agent offers (polls, multi-select,
-   AskUserQuestion, Codex/Claude/OpenCode choice widgets, and similar).
-2. Pre-select or clearly mark the recommended answers.
-3. If no structured UI exists, show one lettered menu. Ask for option letters only.
-4. Accept `recommended` as a full accept of every recommended choice.
-5. Allow free text only after the user picks an option that needs it.
+**Intake (What I found):** always one chat message. No polls. No AskQuestion.
+Print the findings table, `Correct me if I'm wrong.`, then lettered choices with a
+recommended reply in the same message.
 
-Never split Intake into many turns when one round is enough.
-Never ask the user to write sentences when a letter will do.
+**Plan gate and after-Plan picks:** prefer harness polls when available. Otherwise use a
+short lettered menu. Mark the recommended answer.
+
+Also:
+
+1. Accept `recommended` as a full accept of every recommended choice.
+2. Allow free text only after the user picks an option that needs it, or to correct the table.
+3. Never split Intake into many turns when one message is enough.
+4. Never ask the user to write sentences when a letter will do.
 
 ## Phase 1 — Intake Card (required slots)
 
@@ -46,15 +50,14 @@ Do not show digests, fingerprints, hashes, or session IDs to the user.
 2. **Folders and repos** — what we will use, and what each one is for
 3. **Existing playbook** — path if one already exists
 4. **Suggested save location** — proposal only until confirmed
-5. **What I found** — print `findings_chat_block` as a markdown table in chat before any choice UI
-6. **Questions** — lettered choices with a recommended reply. See [intake.md](intake.md)
+5. **What I found** — print the findings table in chat with `Correct me if I'm wrong.`
+6. **Questions** — lettered choices in the **same** chat message. See [intake.md](intake.md)
 
-Hard rule: never open polls until the formatted findings table is visible in chat.
-Keep question 0 short (`Do the findings above look right?`). Never dump the table into the
-poll prompt.
+Hard rule: Intake uses no polls. Print `intake_message` as one message (table + disclaimer +
+choices). Polls are only for Plan gate and after-Plan steps.
 
 Ask the user to reply with letters only, like `A A A`, or `recommended`.
-Free text only if they pick a choice that needs it.
+Free text only if they correct the table or pick a choice that needs it.
 
 On second and later runs, open with a short **What changed** summary when state exists:
 

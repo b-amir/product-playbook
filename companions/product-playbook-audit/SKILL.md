@@ -16,8 +16,8 @@ explicitly switches mode.
 ## Steps
 
 1. Run bootstrap / inventory with `--check-state` (add `--drift` for CI exit codes).
-2. Print **What I found** as a formatted markdown table in chat first, then polls.
-   Keep question 0 short. Never dump the table into the poll prompt.
+2. Print **What I found** as a formatted table plus `Correct me if I'm wrong.` and lettered
+   choices in one chat message. No polls for Intake.
 3. Report Keep / Update / Add / Remove / Needs evidence — do not patch.
 4. Emit End Report with `Mode: audit`.
 
