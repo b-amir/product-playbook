@@ -518,7 +518,7 @@ def expand_acquired_sources(
                         "kind": member["kind"],
                         "assumed_roles": member.get("assumed_roles") or [],
                     }
-                    for child_id, member in zip(child_ids, members, strict=True)
+                    for child_id, member in zip(child_ids, members)
                 ],
             }
         )
