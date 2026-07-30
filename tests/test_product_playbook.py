@@ -449,13 +449,17 @@ class DiscoveryTests(unittest.TestCase):
             self.assertTrue(report["intake"]["recommended_reply"])
             self.assertIn("letters only", report["intake"]["reply_hint"].lower())
             self.assertIn("## What I found", report["intake"]["findings_chat_block"])
-            self.assertIn(
-                "Do these findings look right?",
+            self.assertIn("| Item | Value |", report["intake"]["findings_chat_block"])
+            self.assertEqual(
                 report["intake"]["findings_question_prompt"],
+                "Do the findings above look right?",
             )
             first_question = report["intake"]["questions"][0]
-            self.assertIn("Do these findings look right?", first_question["prompt"])
-            self.assertIn("Product:", first_question["prompt"])
+            self.assertEqual(
+                first_question["prompt"],
+                "Do the findings above look right?",
+            )
+            self.assertNotIn("Product:", first_question["prompt"])
             self.assertEqual(first_question["choices"][0]["key"], "A")
             self.assertTrue(first_question["choices"][0]["recommended"])
             self.assertTrue(report["intake"]["ux"]["prefer_structured_polls"])
@@ -463,7 +467,8 @@ class DiscoveryTests(unittest.TestCase):
                 any("BEFORE opening" in note for note in report["intake"]["presentation_notes"])
             )
             self.assertTrue(
-                any("Never ask" in note for note in report["intake"]["presentation_notes"])
+                any("Never paste" in note or "flatten" in note.lower()
+                    for note in report["intake"]["presentation_notes"])
             )
 
             explicit = json.loads(

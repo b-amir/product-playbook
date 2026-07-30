@@ -6,23 +6,36 @@ Goal: the user should almost never type free text. They pick options.
 
 ## Hard rule: show findings before any choice UI
 
-Never ask “Does this look right?” until the user can see **What I found**.
+Never ask “look right?” until the user can see a readable **What I found** block.
 
 Required order every time:
 
-1. Print the full **What I found** block in the chat message (bullets, not jargon).
+1. Print the full **What I found** block in the chat message first.
+   Use a markdown table or short bullets. Keep it easy to scan.
 2. Then open polls / AskQuestion / lettered menu.
-3. Question 0 must also include a short findings recap inside the question text,
-   because some harnesses show only the poll card and hide the chat above it.
+3. Keep question 0 short. Point at the chat block above.
+   Do **not** paste the full findings into the poll prompt.
 
-If the poll UI would appear alone, put the findings in the first question prompt.
-Do not open a choice UI with an empty or generic “look right?” question.
+Why: many poll UIs flatten newlines and bold the whole prompt into one hard-to-read line.
+
+Question 0 prompt shape (poll-safe, one or two short lines):
+
+```text
+Do the findings above look right?
+```
+
+Optional tiny hint only if the chat may be scrolled away:
+
+```text
+Do the findings above look right? (product, folders, playbook)
+```
 
 Forbidden:
 
-- Asking question 0 with no findings visible in chat and no findings in the prompt
+- Dumping Product / Folders / Playbook / Roles into the poll question text
+- Asking question 0 with no **What I found** block in chat
 - Opening polls first and promising to show findings later
-- Saying “Presenting the Intake Card” without the card contents
+- Saying “Presenting the Intake Card” without printing the findings block
 
 ## How to ask (required)
 
@@ -70,35 +83,33 @@ Print this block in chat before any poll. Show only what discovery found. Skip e
 | Related folders | Nested or linked repos we noticed |
 | Caution | Things that look like mocks or generated copies |
 
-Minimum shape:
+Minimum shape in chat (formatted, scannable):
 
-```text
+```markdown
 ## What I found
 
-Product: …
-Folders:
-- name → path (what it is)
-Existing playbook: … or none
-Save location: …
-Product roles: … or none found
-Width-sensitive screens: … or none found
-Permission checks: … or none found
+| Item | Value |
+| --- | --- |
+| Product | web app + API |
+| Folders | web → apps/web (web app); api → services/api (API) |
+| Existing playbook | docs/playbook |
+| Save location | docs/playbook |
+| Product roles | Admin, Member |
+| Width-sensitive screens | none found |
+| Permission checks | none found |
 
 These are working assumptions from the repo, not the final playbook.
+Review the table, then answer the questions.
 ```
 
-Then ask question 0. The question prompt must repeat a short version of the same facts.
+Then ask question 0 with a short poll-safe prompt.
 
-### 0. Do these findings look right?
+### 0. Do the findings above look right?
 
-Prompt must include the findings, for example:
+Prompt (keep short — do not paste the table here):
 
 ```text
-Do these findings look right?
-Product: web app + API
-Folders: web, api, docs
-Playbook: docs/playbook
-Roles: Admin, Member
+Do the findings above look right?
 ```
 
 Choices:
@@ -156,10 +167,7 @@ When there is no structured UI, render exactly this pattern:
 ## Choose (reply with letters only)
 Recommended: A A A
 
-0. Do these findings look right?
-   Product: …
-   Folders: …
-   Playbook: …
+0. Do the findings above look right?
    A. Yes, continue with these findings (recommended)
    B. No, I will correct them after submitting
 
@@ -217,7 +225,8 @@ Also pick-only:
 
 ## Anti-patterns
 
-- Asking “look right?” before findings are visible in chat and in the question prompt
+- Dumping findings into the poll prompt so they become one unreadable bold line
+- Asking “look right?” before findings are visible as a formatted chat table
 - Opening polls first and promising to show findings later
 - Asking the user to write sentences when a letter would do
 - Hiding the recommended answer

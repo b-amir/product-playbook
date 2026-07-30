@@ -224,11 +224,14 @@ def _choice(key: str, label: str, *, recommended: bool = False, needs_text: bool
 
 def build_findings_copy(assumptions: dict[str, Any]) -> dict[str, str]:
     folders = assumptions.get("folders_and_repos") or []
-    folder_lines = [
-        f"- {folder['name']} → {folder.get('path_or_remote') or '?'} ({folder['what_it_is']})"
-        for folder in folders
-    ]
-    folder_names = ", ".join(folder["name"] for folder in folders) or "none"
+    folder_cell = (
+        "; ".join(
+            f"{folder['name']} → {folder.get('path_or_remote') or '?'} ({folder['what_it_is']})"
+            for folder in folders
+        )
+        if folders
+        else "none"
+    )
     drafts = assumptions.get("existing_playbook") or []
     if drafts:
         playbook = str(
@@ -241,8 +244,12 @@ def build_findings_copy(assumptions: dict[str, Any]) -> dict[str, str]:
         playbook = "none"
     save_location = assumptions.get("suggested_save_location") or "undecided"
     roles = assumptions.get("product_roles") or []
-    role_text = (
-        ", ".join(
+    if not roles:
+        role_text = "none found"
+    elif len(roles) > 3:
+        role_text = f"{len(roles)} signals in code (see discovery notes)"
+    else:
+        role_text = ", ".join(
             sorted(
                 {
                     item.get("where", "").rsplit("/", 1)[-1] or item.get("why", "role")
@@ -250,12 +257,6 @@ def build_findings_copy(assumptions: dict[str, Any]) -> dict[str, str]:
                 }
             )
         )
-        if roles
-        else "none found"
-    )
-    # Prefer plain role hints when why is clearer than path basename.
-    if roles:
-        role_text = f"{len(roles)} signal(s) in code" if len(roles) > 3 else role_text
     width = assumptions.get("screens_that_change_by_width") or []
     width_text = (
         ", ".join(item.get("where", "") for item in width[:3])
@@ -269,34 +270,32 @@ def build_findings_copy(assumptions: dict[str, Any]) -> dict[str, str]:
         else "none found"
     )
     product = (assumptions.get("product") or {}).get("summary") or "unknown"
-
-    chat_lines = [
-        "## What I found",
-        "",
-        f"Product: {product}",
-        "Folders:",
-        *(folder_lines or ["- none"]),
-        f"Existing playbook: {playbook}",
-        f"Save location: {save_location}",
-        f"Product roles: {role_text}",
-        f"Width-sensitive screens: {width_text}",
-        f"Permission checks: {gate_text}",
-        "",
-        assumptions.get("agreement_copy")
-        or "These are working assumptions from the repo, not the final playbook.",
-    ]
-    prompt = (
-        "Do these findings look right?\n"
-        f"Product: {product}\n"
-        f"Folders: {folder_names}\n"
-        f"Playbook: {playbook}\n"
-        f"Save location: {save_location}\n"
-        f"Roles: {role_text}\n"
-        f"Width-sensitive: {width_text}\n"
-        f"Permission checks: {gate_text}"
+    agreement = assumptions.get("agreement_copy") or (
+        "These are working assumptions from the repo, not the final playbook."
     )
+
+    chat_block = "\n".join(
+        [
+            "## What I found",
+            "",
+            "| Item | Value |",
+            "| --- | --- |",
+            f"| Product | {product} |",
+            f"| Folders | {folder_cell} |",
+            f"| Existing playbook | {playbook} |",
+            f"| Save location | {save_location} |",
+            f"| Product roles | {role_text} |",
+            f"| Width-sensitive screens | {width_text} |",
+            f"| Permission checks | {gate_text} |",
+            "",
+            agreement,
+            "Review the table, then answer the questions.",
+        ]
+    )
+    # Poll UIs often flatten newlines. Keep this one short line.
+    prompt = "Do the findings above look right?"
     return {
-        "chat_block": "\n".join(chat_lines),
+        "chat_block": chat_block,
         "question_prompt": prompt,
     }
 
@@ -489,10 +488,11 @@ def build_intake(
         },
         "presentation_notes": [
             "HARD RULE: print findings_chat_block in chat BEFORE opening any poll UI.",
-            "HARD RULE: question 0 prompt must include findings_question_prompt (already filled).",
-            "Never ask 'look right?' with an empty prompt or with findings only promised later.",
-            "Prefer harness polls or multi-select when available. Pre-select recommended answers.",
-            "If no poll UI exists, show one lettered menu and ask for letters only.",
+            "HARD RULE: findings_chat_block is a markdown table. Do not reformat it into one line.",
+            "HARD RULE: question 0 prompt must stay short (findings_question_prompt). Never paste the table into the poll.",
+            "Poll UIs flatten newlines. Long findings in the prompt become unreadable.",
+            "Prefer harness polls when available. Pre-select recommended answers.",
+            "If no poll UI exists, show the table plus one lettered menu and ask for letters only.",
             f"Show Recommended: {recommended_reply}",
             "Accept the bare word recommended as the full recommended reply.",
             "Do not ask the user to write sentences when a letter will do.",

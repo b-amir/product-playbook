@@ -114,51 +114,32 @@ Do not add **Across viewports** to scenarios without viewport-fork evidence.
 
 ## Intake: What I found (chat only)
 
-```text
+```markdown
 ## What I found
-Product: web app + API
-Folders:
-- web → apps/web (web app)
-- api → services/api (API)
-- docs → docs (documentation)
-Existing playbook: docs/playbook
-Save location: docs/playbook
-Product roles: Admin, Member
-Width-sensitive screens: PermissionGate.tsx
-Permission checks: requireRole on settings
+
+| Item | Value |
+| --- | --- |
+| Product | web app + API |
+| Folders | web → apps/web (web app); api → services/api (API) |
+| Existing playbook | docs/playbook |
+| Save location | docs/playbook |
+| Product roles | Admin, Member |
+| Width-sensitive screens | PermissionGate.tsx |
+| Permission checks | requireRole on settings |
 
 These are working assumptions from the repo, not the final playbook.
-
-## Choose (reply with letters only)
-Recommended: A A A A
-
-0. Do these findings look right?
-   Product: web app + API
-   Folders: web, api, docs
-   Playbook: docs/playbook
-   A. Yes, continue with these findings (recommended)
-   B. No, I will correct them after submitting
-
-1. What should I do?
-   A. Update the existing playbook (recommended)
-   B. Create a new playbook
-   C. Review only (no file changes)
-   D. Run checks against the live product
-
-2. Which folders should I use?
-   A. All folders listed above (recommended)
-   Z. Add another folder or Git URL
-
-3. Where should the playbook live?
-   A. Use the existing playbook path (recommended)
-   B. Use the suggested path: docs/playbook
-   C. Somewhere else
-
-Reply like: A A A A
-Or: recommended
+Review the table, then answer the questions.
 ```
 
-Print the **What I found** block before opening any poll UI. The first question must repeat the facts.
+Then open polls. Question 0 stays short:
+
+```text
+Do the findings above look right?
+A. Yes, continue with these findings (recommended)
+B. No, I will correct them after submitting
+```
+
+Never paste the table into the poll prompt.
 
 ## Forbidden in published Markdown
 

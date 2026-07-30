@@ -74,9 +74,11 @@ python3 <skill-dir>/scripts/bootstrap_playbook.py \
 Present the **Intake Card** and **one confirmation round** per
 [references/intake.md](references/intake.md).
 
-Hard rule: print **What I found** (`intake.findings_chat_block`) in chat **before** opening
-any poll UI. Question 0 must use `intake.findings_question_prompt` so the poll card itself
-repeats the findings. Never ask “look right?” with no findings visible.
+Hard rule: print **What I found** (`intake.findings_chat_block`) as a formatted markdown
+table in chat **before** opening any poll UI. Keep question 0 short
+(`intake.findings_question_prompt` = “Do the findings above look right?”).
+Never paste the findings table into the poll prompt. Poll UIs flatten newlines and make
+that unreadable.
 
 Prefer harness polls with recommended answers pre-selected. If polls are unavailable, show one
 lettered menu and ask for letters only (`A A A` or `recommended`). Stop until the user answers.
