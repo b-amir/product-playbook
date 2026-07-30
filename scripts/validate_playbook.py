@@ -332,9 +332,10 @@ def validate_chapter(
     path: Path,
     errors: list[dict[str, str]],
     warnings: list[dict[str, str]],
-) -> list[str]:
+) -> tuple[list[str], list[str]]:
     text = read(path)
     ids: list[str] = []
+    viewport_ids: list[str] = []
 
     if not re.search(r"^## .*scenario list", text, re.IGNORECASE | re.MULTILINE):
         issue(errors, "missing-scenario-list", "Missing scenario list", path)
@@ -373,6 +374,21 @@ def validate_chapter(
                 f"{scenario_id} has no expected-result bullet",
                 path,
             )
+        across = re.search(
+            r"^\*\*Across viewports\*\*\s*(.*?)(?=^\*\*[A-Z][^*]*\*\*\s*$|\Z)",
+            block,
+            re.MULTILINE | re.DOTALL,
+        )
+        if across:
+            bullets = re.findall(r"^-\s+\S+", across.group(1), re.MULTILINE)
+            if len(bullets) < 2:
+                issue(
+                    errors,
+                    "thin-across-viewports",
+                    f"{scenario_id} Across viewports needs at least two bullets",
+                    path,
+                )
+            viewport_ids.append(scenario_id)
 
     if not re.search(r"\]\([^)]+\.md(?:#[^)]+)?\)", text):
         issue(warnings, "missing-next-link", "No next-document link found", path)
@@ -397,7 +413,7 @@ def validate_chapter(
             "Chapter checklist IDs do not match chapter scenario headings",
             path,
         )
-    return ids
+    return ids, viewport_ids
 
 
 def is_absolute_or_private_path(value: str) -> bool:
@@ -571,9 +587,25 @@ def main() -> int:
         check_writing_contract(results_text, results, errors)
 
     all_ids: list[str] = []
+    viewport_ids: list[str] = []
     for chapter in chapters:
-        chapter_ids = validate_chapter(chapter, errors, warnings)
+        chapter_ids, chapter_viewport_ids = validate_chapter(chapter, errors, warnings)
         all_ids.extend(chapter_ids)
+        viewport_ids.extend(chapter_viewport_ids)
+
+    if viewport_ids and results.is_file():
+        results_text = read(results)
+        if not re.search(
+            r"^## .*viewport coverage",
+            results_text,
+            re.IGNORECASE | re.MULTILINE,
+        ):
+            issue(
+                errors,
+                "missing-viewport-coverage",
+                "Results template needs Viewport coverage when Across viewports scenarios exist",
+                results,
+            )
 
     duplicates = sorted(item for item, count in Counter(all_ids).items() if count > 1)
     for scenario_id in duplicates:

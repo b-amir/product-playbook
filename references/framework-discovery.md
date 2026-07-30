@@ -3,23 +3,24 @@
 ## Contents
 
 1. Browser frontends
-2. APIs and backends
-3. Services and workers
-4. RAG and retrieval products
-5. Libraries, SDKs, and helper packages
-6. Integrations, extensions, data, and tooling
-7. Command-line products
-8. Mobile products
-9. Full-stack products
-10. Contracts and runtime addresses
-11. Unknown frameworks
-12. Mixed and multi-root products
-13. Auth, SSO, and identity
-14. Webhooks and async delivery
-15. Feature flags and experiments
-16. Internationalization and locale packs
-17. Accessibility smoke
-18. Source priority
+2. Viewport and responsive forks
+3. APIs and backends
+4. Services and workers
+5. RAG and retrieval products
+6. Libraries, SDKs, and helper packages
+7. Integrations, extensions, data, and tooling
+8. Command-line products
+9. Mobile products
+10. Full-stack products
+11. Contracts and runtime addresses
+12. Unknown frameworks
+13. Mixed and multi-root products
+14. Auth, SSO, and identity
+15. Webhooks and async delivery
+16. Feature flags and experiments
+17. Internationalization and locale packs
+18. Accessibility smoke
+19. Source priority
 
 ## Browser frontends
 
@@ -60,6 +61,44 @@ Look for:
 - CI jobs that start a browser
 
 Do not treat page-object method names as visible UI evidence.
+
+## Viewport and responsive forks
+
+Expand this probe only when browser or hybrid UI evidence exists. Do not add
+viewport sections to every scenario.
+
+### Signals to scan
+
+Look for evidence that the same journey can diverge by width or device class:
+
+| Class | Evidence examples |
+| --- | --- |
+| CSS breakpoints | `@media`, Tailwind or similar `sm:` / `md:` / `lg:` layout forks, theme breakpoints |
+| Layout forks | Separate mobile and desktop components, drawer vs sidebar, `*Mobile*` / `*Desktop*` modules |
+| Runtime forks | `matchMedia`, `useMediaQuery`, `useBreakpoint`, `innerWidth`, resize listeners |
+| Conditional UI or auth | Permission, role, or feature gates wrapped in viewport branches. Mobile-only or desktop-only actions |
+| Tests | Playwright `setViewportSize` or device projects, Cypress `cy.viewport`, responsive e2e matrices |
+
+Discovery may list `viewport_fork_candidates` when these markers appear. Treat that list as a
+lead for Plan, not as proof of divergent outcomes.
+
+### When to mark a scenario
+
+Mark a scenario `viewport_sensitive` only when its linked routes, components, or tests hit these
+signals for the journey under change. Shared global CSS alone is not enough.
+
+When marked:
+
+- Plan Notes should say `viewport: yes` plus a short evidence hint
+- Publish an **Across viewports** section per [output-contract.md](output-contract.md)
+- Prefer the product's evidenced breakpoints. Otherwise use one narrow and one wide width
+- State what must match across widths (especially permissions and primary actions)
+- State intentional differences when evidence shows them
+
+When unmarked, omit **Across viewports**. Do not invent mobile-only or desktop-only behavior.
+
+Native mobile apps use the Mobile products section. Do not conflate responsive web forks with
+native device matrices unless the same journey is proven on both surfaces.
 
 ## APIs and backends
 

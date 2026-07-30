@@ -40,6 +40,9 @@ Never store credentials, tokens, or customer payloads in findings files.
 3. **Repository tests** — run discovered test commands from bootstrap (`pytest`, `npm test`, Playwright, etc.), focused first, then broader when practical.
 4. **UI / CLI / jobs / mobile** — use browser, HTTP client, CLI, or device tools the harness provides.
 5. **Cross-check** — compare observed labels, status codes, and errors to published playbook steps.
+6. **Viewport-sensitive scenarios** — when a scenario has **Across viewports**, exercise both named
+   widths (or mark the missing width Blocked). Prioritize permission, role, and feature gates that
+   sit behind responsive forks.
 
 Record pass/fail per scenario ID when applicable. Note environment, revision, and commands run.
 
@@ -52,17 +55,28 @@ Record pass/fail per scenario ID when applicable. Note environment, revision, an
 - Playbook: <output_dir>
 - Bases / commands: …
 - Git revisions: …
+- Viewports exercised: Narrow … / Wide … / none
 
 ## Summary
 - Scenarios checked: …
-- Defects: N · Drift: N · Blocked: N
+- Defects: N · Drift: N · Blocked: N · Viewport anomalies: N
 
 ## Defects and drift
 ### F-01 — short title
 - Severity: Blocker | Major | Minor | Cosmetic
+- Class: Defect | Drift | Viewport anomaly
 - Scenario: ACC-01 (if any)
 - Expected: …
 - Observed: …
+- Evidence: …
+
+### F-02 — Viewport inconsistency: short title
+- Severity: Blocker | Major | Minor | Cosmetic
+- Class: Viewport anomaly
+- Scenario: AUTH-03
+- Narrow observed: …
+- Wide observed: …
+- Inconsistency: …
 - Evidence: …
 
 ## Test commands run
@@ -71,6 +85,10 @@ Record pass/fail per scenario ID when applicable. Note environment, revision, an
 ## Suggested playbook updates
 - Update ACC-01 step 3 label (requires Plan → Write; do not edit yet unless user approved)
 ```
+
+Viewport anomalies are first-class. When narrow and wide disagree on permission outcomes, primary
+action availability, or required chrome, record a **Viewport anomaly** with both observations.
+Do not collapse that into a generic Fail without naming the width split.
 
 ## After Agent-check
 

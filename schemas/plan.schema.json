@@ -70,6 +70,11 @@
                 "notes": {
                   "type": "array",
                   "items": { "type": "string" }
+                },
+                "viewport_sensitive": { "type": "boolean" },
+                "across_viewports": {
+                  "type": "array",
+                  "items": { "type": "string" }
                 }
               }
             }

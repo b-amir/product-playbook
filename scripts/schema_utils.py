@@ -54,6 +54,23 @@ def validate_plan_document(plan: Any) -> None:
                 str(item).strip() for item in expected
             ):
                 raise ValueError(f"scenario {scenario_id} requires expected results")
+            viewport_sensitive = scenario.get("viewport_sensitive")
+            across = scenario.get("across_viewports")
+            across_items = (
+                [str(item).strip() for item in across if str(item).strip()]
+                if isinstance(across, list)
+                else []
+            )
+            if viewport_sensitive is True and len(across_items) < 2:
+                raise ValueError(
+                    f"scenario {scenario_id} is viewport_sensitive and requires "
+                    "at least two across_viewports bullets"
+                )
+            if across is not None and not viewport_sensitive:
+                if len(across_items) < 2:
+                    raise ValueError(
+                        f"scenario {scenario_id} across_viewports needs at least two bullets"
+                    )
 
 
 def validate_ledger_document(ledger: Any, *, allow_unresolved: bool = False) -> None:

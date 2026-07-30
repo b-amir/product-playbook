@@ -63,6 +63,10 @@ Present a table before any write:
 | --- | --- | --- |
 | Keep / Update / Split / Merge / Remove / Add / Needs evidence | … | … |
 
+When viewport-sensitivity evidence exists for a scenario, put `viewport: yes` and a short evidence
+hint in Notes (for example `matchMedia in permission gate`). Omit that flag when there is no
+viewport fork for the journey. Do not mark every browser scenario viewport-sensitive.
+
 Include contribution boundary and approximate tester time. Wait for Approve / Adjust /
 Audit-only.
 

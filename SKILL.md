@@ -84,7 +84,8 @@ Contribution rules: [references/collaboration-state.md](references/collaboration
 ## 2. Discover and inventory
 
 Read [references/framework-discovery.md](references/framework-discovery.md) for the detected
-surfaces. Expand probes (SSO, webhooks, flags, i18n, a11y) only when evidence exists.
+surfaces. Expand probes (SSO, webhooks, flags, i18n, a11y, viewport forks) only when evidence
+exists.
 
 When a draft exists:
 

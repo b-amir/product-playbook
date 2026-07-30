@@ -65,8 +65,9 @@ Always:
 2. Check state and repository fingerprints.
 3. Re-audit impacted scenarios.
 4. Scan changed roots for new or removed journeys.
-5. Recheck shared authentication, permissions, routing, fixtures, contracts, and global
-   configuration when they changed.
+5. Recheck shared authentication, permissions, routing, fixtures, contracts, global
+   configuration, and viewport forks (breakpoints, resize watchers, conditional mobile/desktop
+   renders) when they changed.
 6. Revalidate the whole output.
 
 Do not interpret an unchanged cited file as proof when a shared helper or contract changed.

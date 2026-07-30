@@ -70,6 +70,14 @@ def validate_plan(plan: dict[str, Any]) -> list[dict[str, Any]]:
             expected = lines(scenario.get("expected"))
             if not steps or not expected:
                 raise ValueError(f"scenario {scenario_id} requires steps and expected results")
+            across_viewports = lines(scenario.get("across_viewports"))
+            viewport_sensitive = bool(scenario.get("viewport_sensitive")) or bool(
+                across_viewports
+            )
+            if viewport_sensitive and len(across_viewports) < 2:
+                raise ValueError(
+                    f"scenario {scenario_id} across_viewports needs at least two bullets"
+                )
             normalized_scenarios.append(
                 {
                     **scenario,
@@ -82,6 +90,8 @@ def validate_plan(plan: dict[str, Any]) -> list[dict[str, Any]]:
                     "setup": lines(scenario.get("setup")),
                     "cleanup": lines(scenario.get("cleanup")),
                     "notes": lines(scenario.get("notes")),
+                    "across_viewports": across_viewports,
+                    "viewport_sensitive": viewport_sensitive,
                 }
             )
         normalized.append(
@@ -143,6 +153,7 @@ def render_chapter(chapter: dict[str, Any], next_target: str) -> str:
         output.extend(["", "**Expected**", ""])
         output.extend(f"- {value}" for value in scenario["expected"])
         output.append("")
+        output.extend(bullet_section("Across viewports", scenario["across_viewports"]))
         output.extend(bullet_section("Cleanup", scenario["cleanup"]))
         output.extend(bullet_section("Note", scenario["notes"]))
     output.extend(["## Chapter checklist", "", "```text"])
@@ -213,7 +224,23 @@ def render_readme(plan: dict[str, Any], chapters: list[dict[str, Any]], files: l
             "- Major: A required outcome is wrong or unavailable.",
             "- Minor: The journey works with a limited defect.",
             "- Cosmetic: Presentation is affected without changing the outcome.",
-            "",
+        ]
+    )
+    if any(
+        scenario.get("viewport_sensitive")
+        for chapter in chapters
+        for scenario in chapter["scenarios"]
+    ):
+        output.extend(
+            [
+                "- Viewport anomaly: The same role or action differs between narrow and wide widths.",
+                "",
+            ]
+        )
+    else:
+        output.append("")
+    output.extend(
+        [
             "## Smoke path",
             "",
         ]
@@ -236,6 +263,11 @@ def render_readme(plan: dict[str, Any], chapters: list[dict[str, Any]], files: l
 
 
 def render_results(chapters: list[dict[str, Any]]) -> str:
+    has_viewport = any(
+        scenario.get("viewport_sensitive") or scenario.get("across_viewports")
+        for chapter in chapters
+        for scenario in chapter["scenarios"]
+    )
     output = [
         "# Results",
         "",
@@ -247,19 +279,34 @@ def render_results(chapters: list[dict[str, Any]]) -> str:
         "",
         "Record the browser, client, runtime, device, or environment used.",
         "",
-        "## Actors",
-        "",
-        "Record the identities used without credentials or access links.",
-        "",
-        "## Test data",
-        "",
-        "Record the starting state, disposable data, and final cleanup state.",
-        "",
-        "## Legend",
-        "",
-        "Use P for Pass, F for Fail, B for Blocked, and N for N/A.",
-        "",
     ]
+    if has_viewport:
+        output.extend(
+            [
+                "## Viewport coverage",
+                "",
+                "For scenarios with Across viewports, record Narrow, Wide, or Both.",
+                "A viewport-sensitive scenario is not a Pass when only one width was run "
+                "unless the missing width is Blocked or N/A with a reason.",
+                "",
+            ]
+        )
+    output.extend(
+        [
+            "## Actors",
+            "",
+            "Record the identities used without credentials or access links.",
+            "",
+            "## Test data",
+            "",
+            "Record the starting state, disposable data, and final cleanup state.",
+            "",
+            "## Legend",
+            "",
+            "Use P for Pass, F for Fail, B for Blocked, and N for N/A.",
+            "",
+        ]
+    )
     for chapter in chapters:
         output.extend(
             [

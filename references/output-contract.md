@@ -79,7 +79,8 @@ Include:
 - Scenario field definitions
 - Pass, Fail, Blocked, and N/A result definitions
 - Failure-evidence checklist
-- Blocker, Major, Minor, and Cosmetic severity guide with product-relevant examples
+- Blocker, Major, Minor, and Cosmetic severity guide with product-relevant examples, including a
+  viewport inconsistency example when any scenario is viewport-sensitive
 - Ordered smoke path using scenario IDs
 - Full-pass order
 - Sign-off rules
@@ -133,6 +134,15 @@ Include only when needed.
 
 - State observable results grounded in assertions or observation.
 
+**Across viewports**
+
+Include only when discovery marks the scenario viewport-sensitive. Omit otherwise.
+
+- Narrow (~375px or the product's evidenced small breakpoint): expect …
+- Wide (~1280px or the product's evidenced large breakpoint): expect …
+- Must match: outcomes that must stay consistent across widths (permissions, primary actions)
+- Watch for: hidden controls, alternate chrome, or different gate copy
+
 **Record**
 
 Include only when useful.
@@ -150,6 +160,12 @@ Require Goal, Who, Steps, and Expected. Ensure every expected result has a corre
 explicit setup. Ensure every action that changes state has cleanup or an environment-owner
 instruction.
 
+**Across viewports** is optional and evidence-gated. Emit it only for scenarios whose linked UI
+evidence includes breakpoints, resize watchers, viewport test projects, or conditional
+mobile/desktop renders. Write observable tester language only. Do not name CSS classes, hooks, or
+file paths. Prefer two named widths grounded in product breakpoints when known. When permission or
+auth gates sit behind viewport forks, say explicitly whether the allow/deny outcome must match.
+
 For browser scenarios, bold exact visible labels. For API, CLI, service, and mobile scenarios, use
 the exact interface syntax defined below.
 
@@ -162,6 +178,7 @@ Include:
 
 - Run details
 - Browser, API client, runtime, device, or environment coverage as applicable
+- Viewport coverage when any scenario includes **Across viewports** (Narrow, Wide, or Both)
 - Accounts, actors, and identities used without credentials or access links
 - Test data, starting state, and cleanup state
 - P, F, B, and N legend
@@ -178,13 +195,20 @@ blocker, recommendation, sign-off, operator, environment, or revision.
 Explain that a scenario passes only when all applicable required outcomes pass. Allow named
 optional subchecks to be recorded as N/A or Blocked in Notes without hiding a required failure.
 
+When **Across viewports** appears on any scenario, include a Viewport coverage section that tells
+testers to record Narrow, Wide, or Both for those scenarios. A viewport-sensitive scenario is not
+a Pass when only one width was exercised unless the missing width is recorded as Blocked or N/A
+with a reason.
+
 ## Surface-specific requirements
 
 ### Browser frontend
 
 - Use exact visible labels and observable page outcomes.
-- Include responsive, keyboard, zoom, loading, empty, error, and not-found checks only when
-  supported by evidence or when the environment owner includes them in scope.
+- Include keyboard, zoom, loading, empty, error, and not-found checks only when supported by
+  evidence or when the environment owner includes them in scope.
+- Add **Across viewports** only for scenarios with viewport-sensitivity evidence. Do not add a
+  global responsive chapter or sprinkle the section onto every browser scenario.
 
 ### API or backend
 

@@ -63,6 +63,45 @@ API tester with a staging credential.
 - Response body includes an `id` value.
 ```
 
+## Viewport-sensitive browser scenario
+
+**Evidence:** permission chrome uses `useMediaQuery` / `md:` layout forks. Desktop shows **Continue**.
+Narrow layout hides the action behind a different gate.
+
+**Plan Notes:** `viewport: yes · useMediaQuery in permission chrome`
+
+**Playbook:**
+
+```markdown
+## AUTH-03: Reach the protected action
+
+**Goal**
+
+Open the protected action when the approved role is signed in.
+
+**Who**
+
+Signed-in member with the approved role.
+
+**Steps**
+
+1. Open the protected page while signed in.
+2. Confirm whether **Continue** is available.
+
+**Expected**
+
+- The page allows the approved role to continue.
+
+**Across viewports**
+
+- Narrow (~375px): the approved role can still reach **Continue** through the narrow chrome.
+- Wide (~1280px): the approved role can select **Continue**.
+- Must match: allow or deny outcome for the same role across both widths.
+- Watch for: missing action, alternate menu-only path, or a different permission message.
+```
+
+Do not add **Across viewports** to scenarios without viewport-fork evidence.
+
 ## Contribution decisions (chat only — never in the playbook)
 
 ```text

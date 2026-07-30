@@ -72,6 +72,33 @@ SOURCE_SUFFIXES = {
     ".tsx",
     ".zig",
 }
+VIEWPORT_FORK_SUFFIXES = SOURCE_SUFFIXES | {
+    ".css",
+    ".less",
+    ".sass",
+    ".scss",
+    ".svelte",
+    ".vue",
+}
+VIEWPORT_FORK_MARKERS = (
+    ("@media", "CSS media query"),
+    ("matchmedia", "matchMedia usage"),
+    ("usemediaquery", "useMediaQuery hook"),
+    ("usebreakpoint", "useBreakpoint hook"),
+    ("setviewportsize", "Playwright viewport size"),
+    ("cy.viewport", "Cypress viewport"),
+    ('addeventlistener("resize"', "resize listener"),
+    ("addeventlistener('resize'", "resize handler"),
+    ("onwindowresize", "resize handler"),
+    ("ismobile(", "isMobile helper"),
+    ("isdesktop(", "isDesktop helper"),
+    ("mobileonly", "mobile-only branch"),
+    ("desktoponly", "desktop-only branch"),
+    ("md:hidden", "responsive utility class"),
+    ("hidden md:", "responsive utility class"),
+    ("sm:hidden", "responsive utility class"),
+    ("lg:block", "responsive utility class"),
+)
 DOC_SUFFIXES = {".adoc", ".md", ".mdx", ".rst", ".txt"}
 CONTRACT_SUFFIXES = {".graphql", ".gql", ".proto", ".raml"}
 STRUCTURED_CONTRACT_SUFFIXES = {".json", ".yaml", ".yml"}
@@ -1051,6 +1078,41 @@ def classify_tests_and_interfaces(
     }
 
 
+def detect_viewport_fork_candidates(
+    files: list[Path],
+    root: Path,
+    max_items: int,
+) -> list[dict[str, str]]:
+    candidates: list[dict[str, str]] = []
+    for path in files:
+        if path.suffix.lower() not in VIEWPORT_FORK_SUFFIXES:
+            continue
+        rel = relative(path, root)
+        name_lower = path.name.lower()
+        stem_lower = path.stem.lower()
+        reasons: list[str] = []
+        if any(
+            token in stem_lower or token in name_lower
+            for token in ("mobile", "desktop", "responsive", "breakpoint")
+        ):
+            reasons.append("viewport-oriented filename")
+        content = read_text(path, limit=120_000).lower()
+        for marker, reason in VIEWPORT_FORK_MARKERS:
+            if marker in content and reason not in reasons:
+                reasons.append(reason)
+        if not reasons:
+            continue
+        candidates.append(
+            {
+                "path": rel,
+                "reason": reasons[0],
+            }
+        )
+        if len(candidates) >= max_items:
+            break
+    return candidates
+
+
 def detect_project_signals(
     project_text: str,
     files: list[Path],
@@ -1409,6 +1471,11 @@ def discover_component_candidates(
                 ),
                 "contract_candidates": contracts[: args.max_items],
                 "contract_evidence": contract_evidence,
+                "viewport_fork_candidates": detect_viewport_fork_candidates(
+                    component_files,
+                    component_root,
+                    args.max_items,
+                ),
             }
         )
     return components
@@ -1502,6 +1569,11 @@ def discover_repository(
         ),
         "test_commands": detect_test_commands(root, files, frameworks),
         "unclassified_test_candidates": unclassified,
+        "viewport_fork_candidates": detect_viewport_fork_candidates(
+            files,
+            root,
+            args.max_items,
+        ),
         "recommended_next_probes": (
             []
             if frameworks or classified["test_files"]
@@ -1962,6 +2034,10 @@ def main() -> int:
             "scope_warnings": sum(
                 len(repository["scope_warnings"]) for repository in repositories
             ),
+            "viewport_fork_candidates": sum(
+                len(repository.get("viewport_fork_candidates", []))
+                for repository in repositories
+            ),
         },
         "mode_suggestion": mode,
         "output_decision": output_decision,
@@ -2036,6 +2112,12 @@ def main() -> int:
         report["notes"].append(
             "Repository instructions describe at least one source as a mock, fixture, generated copy, "
             "or unavailable implementation. Read those warnings and confirm the intended product scope."
+        )
+    if report["evidence_summary"]["viewport_fork_candidates"]:
+        report["notes"].append(
+            "Viewport-fork signals were found (breakpoints, matchMedia, resize watchers, "
+            "or responsive test helpers). Mark only impacted journeys viewport-sensitive and "
+            "add Across viewports sections for those scenarios."
         )
     if prior_work_candidates and not drafts:
         report["notes"].append(

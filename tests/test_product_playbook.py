@@ -213,6 +213,48 @@ class DiscoveryTests(unittest.TestCase):
                 {"apps/web", "services/api"},
             )
 
+    def test_viewport_fork_candidates_are_discovered(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write(
+                root / "package.json",
+                """
+                {
+                  "dependencies": {
+                    "react": "1"
+                  }
+                }
+                """,
+            )
+            write(
+                root / "src" / "PermissionGate.tsx",
+                """
+                import { useMediaQuery } from './hooks'
+                export function PermissionGate({ children }) {
+                  const isNarrow = useMediaQuery('(max-width: 768px)')
+                  if (isNarrow) return null
+                  return children
+                }
+                """,
+            )
+            result = run_script(
+                "discover_product.py",
+                "--source",
+                f"web={root}",
+                "--output-dir",
+                str(root / "docs" / "playbook"),
+            )
+            report = json.loads(result.stdout)
+            repository = report["repositories"][0]
+            paths = {item["path"] for item in repository["viewport_fork_candidates"]}
+            self.assertIn("src/PermissionGate.tsx", paths)
+            self.assertGreaterEqual(
+                report["evidence_summary"]["viewport_fork_candidates"], 1
+            )
+            self.assertTrue(
+                any("Viewport-fork signals" in note for note in report["notes"])
+            )
+
     def test_mixed_repository_keeps_all_surfaces(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -635,6 +677,102 @@ class StateAndValidationTests(unittest.TestCase):
                 ).stdout
             )
             self.assertTrue(validation["valid"])
+
+    def test_renderer_emits_across_viewports_only_when_planned(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            plan = root / "plan.json"
+            output = root / "playbook"
+            write(
+                plan,
+                """
+                {
+                  "title": "Auth Playbook",
+                  "purpose": "Validate protected actions.",
+                  "actors": ["Member"],
+                  "interfaces": ["Use the web app."],
+                  "chapters": [
+                    {
+                      "title": "Auth",
+                      "scenarios": [
+                        {
+                          "id": "AUTH-01",
+                          "title": "Reach the protected action",
+                          "goal": "Open the protected action when approved.",
+                          "who": "Member",
+                          "steps": [
+                            "Open the protected page.",
+                            "Confirm whether Continue is available."
+                          ],
+                          "expected": ["The approved role can continue."],
+                          "viewport_sensitive": true,
+                          "across_viewports": [
+                            "Narrow (~375px): the approved role can still reach Continue.",
+                            "Wide (~1280px): the approved role can select Continue.",
+                            "Must match: allow or deny outcome for the same role across both widths.",
+                            "Watch for: missing action or a different permission message."
+                          ]
+                        },
+                        {
+                          "id": "AUTH-02",
+                          "title": "Sign out",
+                          "goal": "Leave the session.",
+                          "who": "Member",
+                          "steps": ["Select Sign out."],
+                          "expected": ["The signed-out home page is shown."]
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """,
+            )
+            render = json.loads(
+                run_script("render_playbook.py", str(plan), str(output)).stdout
+            )
+            self.assertEqual(render["scenarios"], 2)
+            auth_one = (output / "01-auth.md").read_text(encoding="utf-8")
+            auth_parts = auth_one.split("## AUTH-02:")
+            self.assertIn("**Across viewports**", auth_parts[0])
+            self.assertNotIn("**Across viewports**", auth_parts[1])
+            results = (output / "results-template.md").read_text(encoding="utf-8")
+            self.assertIn("## Viewport coverage", results)
+            readme = (output / "README.md").read_text(encoding="utf-8")
+            self.assertIn("Viewport anomaly", readme)
+            validation = json.loads(
+                run_script(
+                    "validate_playbook.py",
+                    str(output),
+                    "--json",
+                ).stdout
+            )
+            self.assertTrue(validation["valid"])
+
+    def test_validator_rejects_thin_across_viewports(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            playbook = root / "playbook"
+            make_playbook(playbook)
+            chapter = playbook / "01-account.md"
+            text = chapter.read_text(encoding="utf-8")
+            text = text.replace(
+                "- The response status is `200`.\n",
+                "- The response status is `200`.\n\n"
+                "**Across viewports**\n\n"
+                "- Only one width checked.\n",
+            )
+            chapter.write_text(text, encoding="utf-8")
+            validation = json.loads(
+                run_script(
+                    "validate_playbook.py",
+                    str(playbook),
+                    "--json",
+                    check=False,
+                ).stdout
+            )
+            codes = {item["code"] for item in validation["errors"]}
+            self.assertIn("thin-across-viewports", codes)
+            self.assertIn("missing-viewport-coverage", codes)
 
     def test_portable_state_and_strict_validation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1565,6 +1703,41 @@ class ProtocolToolingTests(unittest.TestCase):
                 check=False,
             )
             self.assertNotEqual(bad.returncode, 0)
+
+    def test_schema_utils_requires_across_viewports_when_marked_sensitive(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            plan = root / "plan.json"
+            write(
+                plan,
+                """
+                {
+                  "chapters": [
+                    {
+                      "title": "Auth",
+                      "scenarios": [
+                        {
+                          "id": "AUTH-01",
+                          "steps": ["Open the page."],
+                          "expected": ["The page loads."],
+                          "viewport_sensitive": true,
+                          "across_viewports": ["Only one bullet."]
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """,
+            )
+            result = run_script(
+                "schema_utils.py",
+                str(plan),
+                "--kind",
+                "plan",
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("across_viewports", (result.stderr + result.stdout).lower())
 
     def test_propose_plan_does_not_write_playbook_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
