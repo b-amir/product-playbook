@@ -45,7 +45,19 @@ jobs:
             --source "web=./apps/web" \
             --check-state --drift \
             --output playbook-drift.json
-        # Exit code 1 means impacted scenarios or changed sources — review the JSON.
+            # add: --tests-dir docs/playbook-tests   when runnable tests exist
+        # Exit code 1 means impacted scenarios, changed sources, or stale tests — review the JSON.
+
+      # Optional: runnable tests against a non-prod target. URL and credentials come from
+      # repository secrets as env vars, never from files.
+      - name: Playbook smoke (dev)
+        if: ${{ hashFiles('docs/playbook-tests/playbook-tests.json') != '' }}
+        env:
+          PLAYBOOK_DEV_URL: ${{ secrets.PLAYBOOK_DEV_URL }}
+        run: |
+          python3 .product-playbook-skill/scripts/playbook_tests.py run docs/playbook-tests \
+            --target dev --tags smoke --output playbook-run.md
+          cat playbook-run.md >> "$GITHUB_STEP_SUMMARY"
 ```
 
 Adjust `--source` mappings to match the product. For contribution-only CI, pass

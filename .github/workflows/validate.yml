@@ -23,3 +23,12 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: python -m unittest discover -s tests -v
+      - name: Fixture runnable tests (reference)
+        run: |
+          python scripts/playbook_tests.py check evals/reference/playbook-tests
+          python scripts/playbook_tests.py drift evals/reference/playbook-tests \
+            --source "product=evals/fixture-product"
+          (cd evals/fixture-product && PORT=8765 python app.py &) && sleep 1
+          python scripts/playbook_tests.py run evals/reference/playbook-tests --target local \
+            --output fixture-run.md
+          cat fixture-run.md >> "$GITHUB_STEP_SUMMARY"

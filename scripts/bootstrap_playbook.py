@@ -513,12 +513,29 @@ def build_intake(
             "choices": save_choices,
             "recommended": save_recommended,
         },
+        {
+            "id": "choose_runnable_tests",
+            "required": True,
+            "prompt": "Also generate runnable tests for each scenario?",
+            "selection": "single",
+            "choices": [
+                _choice("A", "No, playbook only", recommended=True),
+                _choice("B", "Yes, where the evidence supports it (same scenario IDs)"),
+                _choice(
+                    "C",
+                    "Yes, and map acceptance examples (paste the file path after your letters)",
+                    needs_text=True,
+                ),
+            ],
+            "recommended": "A",
+        },
     ]
 
     recommended_letters = [
         action_recommended,
         "A",
         save_recommended,
+        "A",
     ]
 
     if assumptions["related_folders"]:

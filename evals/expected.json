@@ -1,12 +1,17 @@
 {
   "output_dir": "evals/fixture-product/docs/playbook",
-  "required_scenario_ids": ["ACC-01"],
-  "required_substrings": ["Create account", "POST /accounts"],
+  "required_scenario_ids": [
+    "ACC-01"
+  ],
+  "required_substrings": [
+    "Create account",
+    "POST /accounts"
+  ],
   "forbidden_substrings": [
     "## Sources",
     "VERIFIED",
     "NEEDS VERIFICATION",
-    "⚠️"
+    "\u26a0\ufe0f"
   ],
   "required_state": {
     "managed_by": "product-playbook"
@@ -16,5 +21,20 @@
     "results-template.md",
     ".product-playbook-state.json"
   ],
-  "allowed_playbook_globs": ["[0-9][0-9]-*.md"]
+  "allowed_playbook_globs": [
+    "[0-9][0-9]-*.md"
+  ],
+  "tests_dir": "evals/fixture-product/docs/playbook-tests",
+  "required_automated_ids": [
+    "ACC-01"
+  ],
+  "required_acceptance_ids": [
+    "EX-1.1-1"
+  ],
+  "forbidden_test_substrings": [
+    "password=",
+    "Authorization: Bearer ",
+    "/Users/",
+    "/home/"
+  ]
 }

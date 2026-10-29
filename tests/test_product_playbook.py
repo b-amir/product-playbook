@@ -601,6 +601,7 @@ class DiscoveryTests(unittest.TestCase):
             self.assertIn("choose_action", question_ids)
             self.assertIn("choose_folders", question_ids)
             self.assertIn("choose_save_location", question_ids)
+            self.assertIn("choose_runnable_tests", question_ids)
             assumptions = report["intake"]["working_assumptions"]
             self.assertEqual(assumptions["headline"], "What I found")
             self.assertEqual(assumptions["agreement_copy"], "Correct me if I'm wrong.")

@@ -24,6 +24,35 @@ def load_json(path: Path) -> Any:
         raise ValueError(f"could not read JSON: {error}") from error
 
 
+AUTOMATION_TAGS = {"smoke", "safe", "destructive"}
+CAPABILITY = re.compile(r"^[a-z][a-z0-9-]*$")
+
+
+def validate_automation(scenario_id: str, automation: Any) -> None:
+    if not isinstance(automation, dict):
+        raise ValueError(f"scenario {scenario_id} automation must be an object")
+    requires = automation.get("requires", [])
+    if not isinstance(requires, list) or not all(
+        isinstance(cap, str) and CAPABILITY.match(cap) for cap in requires
+    ):
+        raise ValueError(
+            f"scenario {scenario_id} automation.requires must list capability names "
+            "(lowercase, digits, dashes)"
+        )
+    if automation.get("manual_only"):
+        if not str(automation.get("reason", "")).strip():
+            raise ValueError(f"scenario {scenario_id} manual_only automation needs a reason")
+        return
+    tags = automation.get("tags")
+    if not isinstance(tags, list) or not tags or not set(tags) <= AUTOMATION_TAGS:
+        raise ValueError(
+            f"scenario {scenario_id} automation.tags must be a non-empty subset of "
+            f"{sorted(AUTOMATION_TAGS)}"
+        )
+    if {"safe", "destructive"} <= set(tags):
+        raise ValueError(f"scenario {scenario_id} cannot be both safe and destructive")
+
+
 def validate_plan_document(plan: Any) -> None:
     if not isinstance(plan, dict):
         raise ValueError("plan must be a JSON object")
@@ -66,6 +95,9 @@ def validate_plan_document(plan: Any) -> None:
                     f"scenario {scenario_id} is viewport_sensitive and requires "
                     "at least two across_viewports bullets"
                 )
+            automation = scenario.get("automation")
+            if automation is not None:
+                validate_automation(scenario_id, automation)
             if across is not None and not viewport_sensitive:
                 if len(across_items) < 2:
                     raise ValueError(
@@ -123,7 +155,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("path", help="JSON file to validate")
     parser.add_argument(
         "--kind",
-        choices=("auto", "plan", "ledger"),
+        choices=("auto", "plan", "ledger", "tests"),
         default="auto",
         help="Document kind (default: auto-detect from contents)",
     )
@@ -144,13 +176,21 @@ def main() -> int:
         document = load_json(path)
         kind = args.kind
         if kind == "auto":
-            if isinstance(document, dict) and "chapters" in document:
+            if isinstance(document, dict) and "targets" in document:
+                kind = "tests"
+            elif isinstance(document, dict) and "chapters" in document:
                 kind = "plan"
             elif isinstance(document, dict) and "scenarios" in document:
                 kind = "ledger"
             else:
                 raise ValueError("cannot auto-detect kind; pass --kind plan|ledger")
-        if kind == "plan":
+        if kind == "tests":
+            from playbook_tests import check_config
+
+            errors = check_config(document, path.parent)
+            if errors:
+                raise ValueError("; ".join(errors))
+        elif kind == "plan":
             validate_plan_document(document)
         else:
             validate_ledger_document(

@@ -1,0 +1,48 @@
+{
+  "title": "Fixture Accounts API playbook",
+  "purpose": "Check that a client can create accounts through the accounts API.",
+  "actors": ["API tester with an HTTP client"],
+  "setup": ["Start the fixture API locally."],
+  "interfaces": ["`POST /accounts`"],
+  "smoke_path": ["ACC-01"],
+  "automated_tests": {
+    "enabled": true,
+    "framework": "unittest",
+    "tests_dir": "../playbook-tests",
+    "acceptance_file": "acceptance.md"
+  },
+  "chapters": [
+    {
+      "title": "Accounts",
+      "intro": "Create accounts through the API.",
+      "scenarios": [
+        {
+          "id": "ACC-01",
+          "title": "Create account",
+          "goal": "A client creates an account with a name.",
+          "who": "API tester",
+          "steps": [
+            "Send `POST /accounts` with JSON body `{\"name\": \"Playbook Tester\"}` (operation **Create account**)."
+          ],
+          "expected": [
+            "Response status is `201`.",
+            "The body has an `id` and `name` is `Playbook Tester`."
+          ],
+          "cleanup": ["Restart the fixture API to clear in-memory accounts."],
+          "automation": {"tags": ["smoke", "destructive"], "acceptance": ["EX-1.1-1"]}
+        },
+        {
+          "id": "ACC-02",
+          "title": "Reject an empty name",
+          "goal": "The API refuses an account without a name.",
+          "who": "API tester",
+          "steps": [
+            "Send `POST /accounts` with JSON body `{\"name\": \"\"}`."
+          ],
+          "expected": ["Response status is `400`."],
+          "automation": {"tags": ["safe"], "acceptance": ["EX-1.1-2"]}
+        }
+      ]
+    }
+  ]
+}

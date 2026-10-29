@@ -102,6 +102,60 @@ Signed-in member with the approved role.
 
 Do not add **Across viewports** to scenarios without viewport-fork evidence.
 
+## Scenario → runnable test (opt-in)
+
+Same ID in three places: the procedure (`ACC-01` in the chapter), the test, the result row.
+
+```python
+# playbook-tests/test_playbook_accounts.py  (evidence: openapi.yaml, tests/test_accounts.py)
+BASE_URL = os.environ["PLAYBOOK_BASE_URL"]
+
+class Accounts(unittest.TestCase):
+    def test_ACC_01_create_account(self):
+        status, body = post_accounts({"name": "Playbook Tester"})
+        self.assertEqual(status, 201)
+        self.assertTrue(body.get("id"))
+```
+
+```ts
+// Web UI, Playwright: labels come from the playbook / existing tests, never invented
+test("AUTH-01 request a magic link", async ({ page }) => {
+  await page.goto("/login");
+  await page.getByRole("button", { name: "Send magic link" }).click();
+  await expect(page.getByText("Check your email")).toBeVisible();
+});
+```
+
+Config entry (`playbook-tests/playbook-tests.json`):
+
+```json
+"ACC-01": {
+  "tags": ["smoke", "destructive"],
+  "test": "test_playbook_accounts.py",
+  "run": ["{python}", "-m", "unittest", "test_playbook_accounts.Accounts.test_ACC_01_create_account"],
+  "acceptance": ["EX-1.1-1"],
+  "evidence": [{"source_id": "api", "path": "openapi.yaml"}]
+},
+"ACC-07": {"manual_only": true, "reason": "Needs an emailed link; no test inbox in evidence"}
+```
+
+Run summary to paste into a ticket:
+
+```markdown
+**Playbook run** · target `dev` (dev) · 2026-10-29 14:47 (UTC+03:00)
+
+P 1 · F 0 · B 0 · N 1
+
+| ID | Result | Run | Acceptance | Notes |
+| --- | --- | --- | --- | --- |
+| ACC-01 | P | Auto | EX-1.1-1 |  |
+| ACC-07 | N | Manual |  | manual only |
+
+Acceptance: 1/1 examples mapped
+```
+
+Full working fixture: [`evals/reference/`](evals/reference/).
+
 ## Contribution decisions (chat only — never in the playbook)
 
 ```text
@@ -189,6 +243,7 @@ Keep provenance in the temporary ledger and chat End Report only.
 - Scenarios: total 12 · added 1 · updated 1 · removed 0 · preserved OOS 6
 - Sources: accessible api, docs · preserved payments
 - Verification: pytest tests/accounts -q
+- Runnable tests: docs/playbook-tests · auto 9 · manual-only 3 · run on local: P 9 F 0 B 0 N 3
 - Findings file: none
 - Unresolved decisions: none
 - Cleanup: none

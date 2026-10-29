@@ -20,6 +20,16 @@
       "type": "array",
       "items": { "type": "string" }
     },
+    "automated_tests": {
+      "type": "object",
+      "description": "Opt-in from Intake/Plan. When enabled, Write also generates runnable tests.",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "framework": { "type": "string" },
+        "tests_dir": { "type": "string" },
+        "acceptance_file": { "type": "string" }
+      }
+    },
     "smoke_path": {
       "type": "array",
       "items": { "type": "string" }
@@ -63,6 +73,11 @@
                   "type": "array",
                   "items": { "type": "string" }
                 },
+                "environment": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "What the environment must offer (real storage, a queue, a paid model). Rendered as an Environment section."
+                },
                 "cleanup": {
                   "type": "array",
                   "items": { "type": "string" }
@@ -70,6 +85,27 @@
                 "notes": {
                   "type": "array",
                   "items": { "type": "string" }
+                },
+                "automation": {
+                  "type": "object",
+                  "properties": {
+                    "tags": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": { "enum": ["smoke", "safe", "destructive"] }
+                    },
+                    "requires": {
+                      "type": "array",
+                      "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+                      "description": "Environment capabilities the automated test needs (s3, sqs, llm-real)."
+                    },
+                    "manual_only": { "type": "boolean" },
+                    "reason": { "type": "string" },
+                    "acceptance": {
+                      "type": "array",
+                      "items": { "type": "string" }
+                    }
+                  }
                 },
                 "viewport_sensitive": { "type": "boolean" },
                 "across_viewports": {

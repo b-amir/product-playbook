@@ -1,0 +1,91 @@
+{
+  "acceptance": {
+    "EX-1.1-1": {
+      "given": "the accounts API is reachable",
+      "then": "the response status is `201`; the body contains an `id` and the same `name`",
+      "title": "Create an account",
+      "when": "a client sends `POST /accounts` with a non-empty `name`"
+    },
+    "EX-1.1-2": {
+      "given": "the accounts API is reachable",
+      "then": "the response status is `400`",
+      "title": "Reject an empty name",
+      "when": "a client sends `POST /accounts` with an empty `name`"
+    }
+  },
+  "credentials_env": [],
+  "default_target": "local",
+  "framework": "unittest",
+  "managed_by": "product-playbook",
+  "scenarios": {
+    "ACC-01": {
+      "acceptance": [
+        "EX-1.1-1"
+      ],
+      "evidence": [
+        {
+          "path": "openapi.yaml",
+          "sha256": "b51493316496819cd69dc6d40f5fc0b9908c642bcaefde2bc84f794b3da7b273",
+          "source_id": "product"
+        },
+        {
+          "path": "tests/test_accounts.py",
+          "sha256": "82a15fee3c3d25317b57b68398afdb93be8b044016be35f40dd02d41c35fd399",
+          "source_id": "product"
+        }
+      ],
+      "run": [
+        "{python}",
+        "-m",
+        "unittest",
+        "test_playbook_accounts.Accounts.test_ACC_01_create_account"
+      ],
+      "tags": [
+        "smoke",
+        "destructive"
+      ],
+      "test": "test_playbook_accounts.py",
+      "test_sha256": "1a9f85f7f416cd2cba646a9c90c5c36b2687eb355cc943c079640ac92a898c44",
+      "title": "Create an account"
+    },
+    "ACC-02": {
+      "acceptance": [
+        "EX-1.1-2"
+      ],
+      "evidence": [
+        {
+          "path": "app.py",
+          "sha256": "7eca156b17b68a4f587b4918aa320982c3a24fecef7066b8610ea29fbce15db7",
+          "source_id": "product"
+        }
+      ],
+      "run": [
+        "{python}",
+        "-m",
+        "unittest",
+        "test_playbook_accounts.Accounts.test_ACC_02_reject_empty_name"
+      ],
+      "tags": [
+        "safe"
+      ],
+      "test": "test_playbook_accounts.py",
+      "test_sha256": "1a9f85f7f416cd2cba646a9c90c5c36b2687eb355cc943c079640ac92a898c44",
+      "title": "Reject an empty name"
+    }
+  },
+  "schema_version": 1,
+  "targets": {
+    "dev": {
+      "base_url_env": "PLAYBOOK_DEV_URL",
+      "kind": "dev"
+    },
+    "local": {
+      "base_url": "http://127.0.0.1:8765",
+      "kind": "local"
+    },
+    "prod": {
+      "base_url_env": "PLAYBOOK_PROD_URL",
+      "kind": "prod"
+    }
+  }
+}

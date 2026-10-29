@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
+import os
 import uuid
 
 
@@ -36,7 +37,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    server = HTTPServer(("127.0.0.1", 8765), Handler)
+    server = HTTPServer(("127.0.0.1", int(os.environ.get("PORT", "8765"))), Handler)
     server.serve_forever()
 
 

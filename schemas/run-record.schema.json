@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/b-amir/product-playbook/schemas/run-record.schema.json",
+  "title": "Product Playbook run record",
+  "description": "Written by scripts/playbook_tests.py run|retest into <tests_dir>/<history_dir>/<run_id>.json. Local files; nothing is sent anywhere. Stores only the ticket reference, title and a hash of its text.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "timestamp",
+    "target",
+    "kind",
+    "results"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string",
+      "description": "ISO 8601 with offset"
+    },
+    "command": {
+      "enum": [
+        "run",
+        "retest"
+      ]
+    },
+    "target": {
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "local",
+        "dev",
+        "staging",
+        "prod",
+        "custom"
+      ]
+    },
+    "base_url": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "provides": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "selection": {
+      "type": "object",
+      "properties": {
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "only": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ticket": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "ref": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "text_sha256": {
+          "type": "string"
+        },
+        "mentions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "commits": {
+      "type": "object",
+      "description": "source id -> commit; 'tests' is the tests folder itself",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "sha": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dirty": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "comparison": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "fixed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "still_failing": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "newly_broken": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "changed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "new": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "since": {
+          "type": "string"
+        },
+        "since_time": {
+          "type": "string"
+        }
+      }
+    },
+    "results": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "result",
+          "mode"
+        ],
+        "properties": {
+          "result": {
+            "enum": [
+              "pass",
+              "fail",
+              "blocked",
+              "env",
+              "unbuilt",
+              "na"
+            ]
+          },
+          "mode": {
+            "enum": [
+              "Auto",
+              "Manual"
+            ]
+          },
+          "note": {
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "neighbour"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

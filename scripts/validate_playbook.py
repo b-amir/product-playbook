@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import re
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -161,6 +162,10 @@ def parse_args() -> argparse.Namespace:
         "--require-state",
         action="store_true",
         help="Require and validate portable collaboration state.",
+    )
+    parser.add_argument(
+        "--tests-dir",
+        help="Also validate generated runnable tests (playbook-tests.json) against this playbook.",
     )
     return parser.parse_args()
 
@@ -552,6 +557,24 @@ def validate_state(
         )
 
 
+def validate_tests_dir(
+    root: Path, tests_dir: Path, scenario_ids: set[str], errors: list[dict[str, str]]
+) -> None:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import playbook_tests  # stdlib-only sibling helper
+
+    if tests_dir == root or root in tests_dir.parents:
+        issue(errors, "tests-inside-playbook", "Generated tests must live outside the playbook folder")
+        return
+    try:
+        config = playbook_tests.load_config(tests_dir)
+    except (ValueError, json.JSONDecodeError) as error:
+        issue(errors, "tests-config", str(error))
+        return
+    for message in playbook_tests.check_config(config, tests_dir, scenario_ids):
+        issue(errors, "tests-config", message, tests_dir / playbook_tests.CONFIG_NAME)
+
+
 def main() -> int:
     args = parse_args()
     root = Path(args.output_dir).expanduser().resolve()
@@ -683,6 +706,8 @@ def main() -> int:
         )
     if args.require_state:
         validate_state(root, set(all_ids), errors)
+    if args.tests_dir:
+        validate_tests_dir(root, Path(args.tests_dir).expanduser().resolve(), set(all_ids), errors)
 
     report: dict[str, Any] = {
         "valid": not errors,

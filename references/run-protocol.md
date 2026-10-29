@@ -88,6 +88,11 @@ hint in Notes (for example `matchMedia in permission gate`). Omit that flag when
 viewport fork for the journey. Do not mark every browser scenario viewport-sensitive.
 
 Include contribution boundary and approximate tester time.
+
+When runnable tests were opted in at Intake (question 4 B or C), add a **Test** column:
+`auto: smoke` / `auto: safe` / `auto: destructive` / `manual-only: <reason>`, and list
+acceptance examples that map to no scenario as `Needs evidence` or `Add`.
+See [tests.md](tests.md).
 Ask for a pick-only Plan gate:
 
 - A. Approve the plan `(recommended)`
@@ -106,7 +111,10 @@ they approve.
 2. `validate_playbook.py`
 3. `inventory_playbook.py --write-state` with ledger
 4. `validate_playbook.py --require-state`
-5. Emit the End Report
+5. If runnable tests were opted in: generate tests, `playbook_tests.py fingerprint`,
+   `validate_playbook.py --tests-dir`, and `playbook_tests.py run` on the agreed target
+   ([tests.md](tests.md))
+6. Emit the End Report
 
 ## End Report (fixed shape every time)
 
@@ -118,6 +126,7 @@ they approve.
 - Scenarios: total N · added · updated · removed · preserved OOS
 - Sources: accessible … · preserved …
 - Verification: none | tests | live smoke | agent-check (summary)
+- Runnable tests: none | <tests_dir> · auto N · manual-only N · run on <target>: P/F/B/E/U/N
 - Findings file: none | <path>
 - Unresolved decisions: …
 - Cleanup: temporary checkouts, etc.
@@ -135,3 +144,4 @@ Inside `<output_dir>` publish only:
 
 Optional derived `playbook.pdf` / `playbook.html` only on explicit ask.
 Agent-check findings go to the sibling folder documented in [agent-check.md](agent-check.md).
+Runnable tests and their config go to sibling `playbook-tests/` ([tests.md](tests.md)).

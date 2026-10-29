@@ -36,6 +36,7 @@ Works with Cursor, Claude Code, Codex, OpenCode, Gemini CLI, and GitHub Copilot 
 </p>
 
 - **`playbook/`** — scenario chapters, results template, and `.product-playbook-state.json`.
+- **`playbook-tests/`** — optional runnable tests with the same scenario IDs, plus one `playbook-tests.json` for targets and safety tags.
 - **`playbook-findings/`** — optional Agent-check notes (drift, defects), kept as a sibling folder.
 
 ## How a run feels
@@ -44,7 +45,7 @@ Every agent follows the same protocol: **Intake → Plan → Write**, then optio
 
 1. Intake — discover the product, show What I found as a table, then lettered choices in the same message (no polls).
 2. **Plan** — Keep / Update / Add table. No Markdown writes until you approve.
-3. **Write** — tester-facing chapters + one `.product-playbook-state.json`.
+3. **Write** — tester-facing chapters + one `.product-playbook-state.json`, plus runnable tests if you opted in.
 4. **Opt-in** — PDF/HTML export, or Agent-check findings in `playbook-findings/`.
 
 Full rules: [`SKILL.md`](SKILL.md) · [`references/run-protocol.md`](references/run-protocol.md)
@@ -86,6 +87,32 @@ python3 scripts/validate_playbook.py ./docs/playbook
 
 Examples: [`examples.md`](examples.md) · Output contract: [`references/output-contract.md`](references/output-contract.md)
 
+## Runnable tests (opt-in)
+
+Answer **B** to "Also generate runnable tests?" at Intake. Each evidence-backed scenario gets a test in the product's own framework (else Playwright for web, Playwright API or pytest for HTTP, shell for CLI). Steps the evidence cannot back stay manual-only.
+
+```bash
+python3 scripts/playbook_tests.py run ./docs/playbook-tests --target local
+python3 scripts/playbook_tests.py run ./docs/playbook-tests --target prod   # smoke/safe only
+```
+
+- Targets live in `playbook-tests.json`. Credentials are env var names only, never values.
+- Tags `smoke` / `safe` / `destructive`. Prod skips `destructive` unless you pass `--allow-destructive`.
+- Acceptance examples (`EX-9.1-9` Given/When/Then) import with `import-acceptance` and trace to a scenario, a test, and a result.
+- Scenarios can declare `requires` (s3, sqs, llm-real) and targets `provides`; unmet needs are
+  reported as E (Blocked, environment), never as failures.
+- The run prints a short P/F/B/E/U/N table you can paste into a ticket. Manual results merge in with `--manual ID=P`.
+- **U** (Not built yet) comes from a readiness check: scenario `readiness` markers missing from the
+  code (`--source app=../app`), a `[not-built]` test skip, or a ticket state outside `tickets.ready_states`.
+- Optional ticket pinning: `--ticket ABC-123`, `--ticket-file ticket.md`, `--ticket-state Test`. Each
+  run records commits, target and time in `playbook-runs/` (local).
+- `retest` diffs against the last run (fixed / still failing / newly broken) and reruns neighbouring
+  scenarios; `changed` maps new commits to scenarios and suggests what to rerun without running it.
+
+New here? Start with [`QUICKSTART.md`](QUICKSTART.md). Details: [`references/runs.md`](references/runs.md).
+
+Rules: [`references/tests.md`](references/tests.md)
+
 ## Contributions, drift, and Agent-check
 
 Scoped inventory when only some sources are available:
@@ -103,7 +130,8 @@ CI drift (exit `1` when evidence moved):
 ```bash
 python3 scripts/inventory_playbook.py ./docs/playbook \
   --source "api=./services/api" \
-  --check-state --drift
+  --check-state --drift \
+  --tests-dir ./docs/playbook-tests   # optional: also flag tests whose evidence moved
 ```
 
 Drop-in workflow: [`examples/github-action-validate-playbook.yml`](examples/github-action-validate-playbook.yml).  
@@ -123,7 +151,7 @@ Collaboration state: [`references/collaboration-state.md`](references/collaborat
 python3 -m unittest discover -s tests -v
 ```
 
-Eval fixture: [`evals/`](evals/). Schemas: [`schemas/`](schemas/).
+Eval fixture: [`evals/`](evals/) (its reference tests run against the fixture API in the suite). Schemas: [`schemas/`](schemas/).
 
 ## License
 

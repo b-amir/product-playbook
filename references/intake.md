@@ -152,6 +152,14 @@ Ask only needed decisions. Mark exactly one recommended choice per single-select
 - B. Use the suggested path `(recommended when creating)`
 - C. Somewhere else `(then paste the path after your letters)`
 
+### 4. Also generate runnable tests for each scenario?
+
+- A. No, playbook only `(recommended)`
+- B. Yes, where the evidence supports it (same scenario IDs)
+- C. Yes, and map acceptance examples `(then paste the examples file path after your letters)`
+
+See [tests.md](tests.md). The user can also opt in later at the Plan gate.
+
 ### Optional (same message, only when needed)
 
 Nearby repos listed in the table:

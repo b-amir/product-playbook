@@ -1,0 +1,248 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/b-amir/product-playbook/schemas/playbook-tests.schema.json",
+  "title": "Product Playbook runnable tests config (playbook-tests.json)",
+  "description": "Lives in the sibling tests folder, never in the playbook folder. Enforced by scripts/playbook_tests.py check. Credentials are env var names only.",
+  "type": "object",
+  "required": [
+    "managed_by",
+    "targets",
+    "scenarios"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "managed_by": {
+      "const": "product-playbook"
+    },
+    "schema_version": {
+      "type": "integer"
+    },
+    "framework": {
+      "type": "string",
+      "description": "playwright | pytest | unittest | shell | the product's own runner"
+    },
+    "workdir": {
+      "type": "string",
+      "description": "Run directory relative to this file (default .)"
+    },
+    "default_target": {
+      "type": "string"
+    },
+    "targets": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "local",
+              "dev",
+              "staging",
+              "prod",
+              "custom"
+            ]
+          },
+          "base_url": {
+            "type": "string",
+            "description": "Literal URL. Not allowed for prod."
+          },
+          "base_url_env": {
+            "type": "string",
+            "pattern": "^[A-Z_][A-Z0-9_]*$"
+          },
+          "provides": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$"
+            },
+            "description": "Capabilities this environment really offers (s3, sqs, llm-mock, ...). Emulators and mocks count only under their own names."
+          },
+          "notes": {
+            "type": "string",
+            "description": "How the capabilities are provided (emulator, mock, real service). No URLs with credentials."
+          }
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "description": "Optional vocabulary: capability name -> what it means. When present, every requires/provides entry must be declared here.",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]*$"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "credentials_env": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z_][A-Z0-9_]*$"
+      }
+    },
+    "acceptance": {
+      "type": "object",
+      "description": "Imported Given/When/Then examples keyed by ID (EX-9.1-9).",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "given": {
+            "type": "string"
+          },
+          "when": {
+            "type": "string"
+          },
+          "then": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "scenarios": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[A-Z][A-Z0-9]{1,5}-\\d{2,3}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "manual_only": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "smoke",
+                "safe",
+                "destructive"
+              ]
+            }
+          },
+          "test": {
+            "type": "string",
+            "description": "Test file relative to this folder"
+          },
+          "requires": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$"
+            },
+            "description": "Capabilities the scenario needs. When the target does not provide one, the run records E (Blocked, environment) without running it."
+          },
+          "run": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "argv; {python} expands to the current interpreter. Reads PLAYBOOK_BASE_URL."
+          },
+          "acceptance": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "test_sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "source_id",
+                "path"
+              ],
+              "properties": {
+                "source_id": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "sha256": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "tickets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ticket references this scenario verifies. run --ticket REF selects them."
+          },
+          "readiness": {
+            "type": "array",
+            "description": "Code that must exist before a failure can mean Fail. Checked when the source is given with --source; a gap records U (Not built yet) without running.",
+            "items": {
+              "type": "object",
+              "required": [
+                "source_id",
+                "path"
+              ],
+              "properties": {
+                "source_id": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "contains": {
+                  "type": "string",
+                  "description": "Regex the file must match (route, flag, symbol)."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "history_dir": {
+      "type": "string",
+      "description": "Run history folder relative to this file (default playbook-runs). One JSON file per run; see run-record.schema.json."
+    },
+    "tickets": {
+      "type": "object",
+      "description": "Optional. Works without any tracker.",
+      "properties": {
+        "pattern": {
+          "type": "string",
+          "description": "Regex for ticket references in pasted text (default: ABC-123 style)."
+        },
+        "ready_states": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Ticket states in which a failure counts as Fail. In any other state a failure is recorded as U (Not built yet)."
+        }
+      }
+    }
+  }
+}

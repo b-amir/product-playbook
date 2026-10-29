@@ -107,6 +107,7 @@ SCENARIO_HEADING = re.compile(
 MARKDOWN_LINK = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 
 
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Create a compact draft inventory and check or write evidence state."
@@ -184,6 +185,13 @@ def parse_args() -> argparse.Namespace:
         help=(
             "With --check-state, exit 1 when impacted scenarios, added/removed IDs, "
             "or changed sources require attention. Machine-readable report still prints."
+        ),
+    )
+    parser.add_argument(
+        "--tests-dir",
+        help=(
+            "Generated runnable tests folder (playbook-tests.json). With --check-state, "
+            "report tests whose file or evidence changed; --drift counts them."
         ),
     )
     parser.add_argument("--output", help="Write JSON report to this file")
@@ -958,6 +966,15 @@ def main() -> int:
 
     if args.check_state:
         report["incremental"] = structured_compare(report, state, roots_by_id)
+        if args.tests_dir:
+            import playbook_tests  # stdlib-only sibling helper
+
+            tests_dir = Path(args.tests_dir).expanduser().resolve()
+            try:
+                config = playbook_tests.load_config(tests_dir)
+            except (ValueError, json.JSONDecodeError) as error:
+                raise SystemExit(str(error)) from error
+            report["tests_drift"] = playbook_tests.drift(tests_dir, config, roots_by_id)
 
     if args.drift and not args.check_state:
         raise SystemExit("--drift requires --check-state")
@@ -970,6 +987,7 @@ def main() -> int:
             or incremental.get("removed_scenarios")
             or incremental.get("changed_sources")
             or incremental.get("full_audit_required")
+            or report.get("tests_drift", {}).get("drift")
         )
         report["drift_summary"] = {
             "drift": drift_hit,
@@ -979,6 +997,7 @@ def main() -> int:
             "changed_sources": incremental.get("changed_sources", []),
             "changed_paths_by_source": incremental.get("changed_paths_by_source", {}),
             "preserved_out_of_scope": incremental.get("preserved_out_of_scope", []),
+            "stale_tests": report.get("tests_drift", {}).get("stale_tests", {}),
         }
 
     if args.migrate_state:

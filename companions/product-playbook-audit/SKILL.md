@@ -26,7 +26,8 @@ Skill root scripts live two levels up: `../../scripts/`.
 ```bash
 python3 <skill-dir>/../../scripts/inventory_playbook.py "<output_dir>" \
   --source "SOURCE_ID=<root>" \
-  --check-state --drift
+  --check-state --drift \
+  [--tests-dir "<tests_dir>"]   # also report stale runnable tests
 ```
 
 Full protocol: [../../references/run-protocol.md](../../references/run-protocol.md).

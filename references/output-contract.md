@@ -42,6 +42,10 @@ workflow, are not part of the canonical tester-facing bundle, and must not be re
 as a source, or distributed in place of the Markdown. Delete or regenerate them whenever the
 Markdown changes.
 
+Runnable tests (opt-in) must never appear in this folder either. They live in sibling
+`<playbook-parent>/playbook-tests/` per [tests.md](tests.md). Chapters do not mention test files,
+tags, targets, or acceptance IDs. The shared scenario ID is the only link.
+
 Agent-check findings must never appear in this folder. Write them to the sibling directory
 `<playbook-parent>/playbook-findings/` only. See [agent-check.md](agent-check.md).
 
@@ -77,7 +81,10 @@ Include:
 - Environment-owner handoff
 - Confirmed interface reference for routes, endpoints, commands, events, jobs, or mobile screens
 - Scenario field definitions
-- Pass, Fail, Blocked, and N/A result definitions
+- Pass, Fail, Blocked, Blocked (environment), Not built yet, and N/A result definitions. Blocked
+  (environment) means the environment lacks a capability (storage, queue, paid model), not a
+  product defect. Not built yet means the feature is absent from the code under test or its
+  ticket is not ready for testing ([runs.md](runs.md))
 - Failure-evidence checklist
 - Blocker, Major, Minor, and Cosmetic severity guide with product-relevant examples, including a
   viewport inconsistency example when any scenario is viewport-sensitive
@@ -120,6 +127,11 @@ State the user outcome.
 **Who**
 
 Name the persona or account type.
+
+**Environment**
+
+Include only when the scenario needs something not every environment has (real object storage,
+a queue, a paid model). Name the capability, not a host or URL.
 
 **Setup**
 
@@ -182,9 +194,12 @@ Include:
 - Accounts, actors, and identities used without credentials or access links
 - Test data, starting state, and cleanup state
 - P, F, B, and N legend
-- One results table per chapter mirroring every scenario ID
+- One results table per chapter mirroring every scenario ID, with columns
+  `| ID | Result | Run | Notes |` where Run is Manual or Auto, so one template serves manual,
+  automated, and mixed runs
+- A Summary note that a ticket comment needs only the counts line and the non-P rows
 - Defects with severity and evidence
-- Blocked and N/A details
+- Blocked, Not built yet, and N/A details
 - Cleanup tracking
 - Counts by result
 - Recommendation and sign-off

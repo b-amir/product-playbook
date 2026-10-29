@@ -88,6 +88,7 @@ def validate_plan(plan: dict[str, Any]) -> list[dict[str, Any]]:
                     "steps": steps,
                     "expected": expected,
                     "setup": lines(scenario.get("setup")),
+                    "environment": lines(scenario.get("environment")),
                     "cleanup": lines(scenario.get("cleanup")),
                     "notes": lines(scenario.get("notes")),
                     "across_viewports": across_viewports,
@@ -145,6 +146,7 @@ def render_chapter(chapter: dict[str, Any], next_target: str) -> str:
                 "",
             ]
         )
+        output.extend(bullet_section("Environment", scenario["environment"]))
         output.extend(bullet_section("Setup", scenario["setup"]))
         output.extend(["**Steps**", ""])
         output.extend(
@@ -304,6 +306,7 @@ def render_results(chapters: list[dict[str, Any]]) -> str:
             "## Legend",
             "",
             "Use P for Pass, F for Fail, B for Blocked, and N for N/A.",
+            "In the Run column write Manual or Auto. Auto rows come from the automated run summary.",
             "",
         ]
     )
@@ -312,11 +315,11 @@ def render_results(chapters: list[dict[str, Any]]) -> str:
             [
                 f"### {chapter['title']}",
                 "",
-                "| ID | Result | Notes |",
-                "| --- | --- | --- |",
+                "| ID | Result | Run | Notes |",
+                "| --- | --- | --- | --- |",
             ]
         )
-        output.extend(f"| {scenario['id']} | | |" for scenario in chapter["scenarios"])
+        output.extend(f"| {scenario['id']} | | | |" for scenario in chapter["scenarios"])
         output.append("")
     output.extend(
         [
@@ -324,9 +327,9 @@ def render_results(chapters: list[dict[str, Any]]) -> str:
             "",
             "Record severity and evidence for every defect.",
             "",
-            "## Blocked and N/A",
+            "## Blocked, Not built yet, and N/A",
             "",
-            "Explain every blocked or not-applicable result.",
+            "Explain every blocked, not-built, or not-applicable result.",
             "",
             "## Cleanup",
             "",
@@ -335,6 +338,7 @@ def render_results(chapters: list[dict[str, Any]]) -> str:
             "## Summary",
             "",
             "Count each result and state the recommendation.",
+            "For a ticket comment, paste one line of counts and the rows that are not P.",
             "",
             "## Sign-off",
             "",

@@ -5,7 +5,9 @@ description: >-
   from any product codebase (tests, contracts, Swagger, docs, source, live interfaces).
   Use when the user asks for a product playbook, manual QA playbook, UAT script,
   tester-facing scenarios, playbook reconciliation, playbook audit, or drift check
-  against an existing playbook. Do not use for writing unit tests, designing APIs,
+  against an existing playbook. Optionally also generates runnable e2e/API/CLI
+  tests that share the scenario IDs, with targets, safety tags, acceptance-example
+  traceability, and a pasteable run summary. Do not use for writing unit tests, designing APIs,
   or generic QA strategy without a repository. Never invent interface labels or
   behavior. Publish only tester-facing Markdown plus one portable state JSON;
   optional PDF/HTML and sibling findings only when asked.
@@ -28,6 +30,9 @@ Intake Card (text only, no polls), Plan gate, and End Report — every harness.
 - PDF/HTML only on explicit ask → [references/export.md](references/export.md).
 - Agent-check findings → sibling `playbook-findings/` only →
   [references/agent-check.md](references/agent-check.md).
+- Runnable tests are opt-in, live in sibling `playbook-tests/`, and automate only
+  evidence-backed steps → [references/tests.md](references/tests.md).
+- Credentials only as env var names. Prod targets run only `smoke`/`safe` tests by default.
 - Never embed org names, people, machine paths, or product-specific assumptions in this skill.
 
 ## Run status (show at the start of each phase)
@@ -39,7 +44,7 @@ playbook chapter ticks. Update the marks as you move. Do not invent extra phases
 Run status (this chat):
 - [x] 1. Intake — done bootstrap; waiting for your letter reply (no files written)
 - [ ] 2. Plan — not started (starts after Intake answers)
-- [ ] 3. Write — not started (starts after you approve the plan)
+- [ ] 3. Write — not started (starts after you approve the plan; includes runnable tests if opted in)
 - [ ] 4a. Export PDF/HTML — optional; skipped unless you ask
 - [ ] 4b. Agent-check — optional; skipped unless you ask
 ```
@@ -69,8 +74,8 @@ lists those members — not a single wrapper pretending to be the whole product.
 
 Also accept: `docs_source`, `output_dir`, `draft_path`, `run_scope`
 (`auto` | `full` | `contribution` | `audit`), `scope`, `product_surface`,
-`test_framework`, `verify` / Agent-check, propose-only plan path, and inventory
-`--drift` for CI exit codes.
+`test_framework`, `verify` / Agent-check, propose-only plan path, inventory
+`--drift` for CI exit codes, `runnable_tests` (opt-in), `target`, and an acceptance-examples file.
 
 ## 1. Intake
 
@@ -165,6 +170,10 @@ Examples: [examples.md](examples.md).
 Classify Keep / Update / Split / Merge / Remove / Add / Needs more evidence.
 Present the plan table. Wait for Approve / Adjust / Audit-only.
 
+When runnable tests were opted in, add a **Test** column: `auto: smoke|safe|destructive`, or
+`manual-only: <reason>`, plus mapped acceptance IDs. Record it in the plan as
+`automated_tests` and per-scenario `automation` (see [references/tests.md](references/tests.md)).
+
 Propose-only (no Markdown write):
 
 ```bash
@@ -192,6 +201,25 @@ python3 <skill-dir>/scripts/inventory_playbook.py "<output_dir>" \
 
 python3 <skill-dir>/scripts/validate_playbook.py "<output_dir>" --require-state
 ```
+
+When runnable tests are opted in, follow the Write-phase checklist in
+[references/tests.md](references/tests.md):
+
+```bash
+python3 <skill-dir>/scripts/playbook_tests.py import-acceptance "<tests_dir>" "<examples.md>"  # optional
+python3 <skill-dir>/scripts/playbook_tests.py fingerprint "<tests_dir>" --source "SOURCE_ID=<root>"
+python3 <skill-dir>/scripts/validate_playbook.py "<output_dir>" --tests-dir "<tests_dir>"
+python3 <skill-dir>/scripts/playbook_tests.py run "<tests_dir>" --target local
+```
+
+Paste the run summary into the End Report. Keep **E** (Blocked, environment) apart from **F**:
+missing cloud services, queues, or paid models are environment issues
+([references/environments.md](references/environments.md)). Before calling **F**, run the
+readiness check: the feature exists in the code and, when a ticket is known, the ticket is ready
+for testing; otherwise record **U** (Not built yet). Ticket-pinned runs, run history, `retest`
+and `changed` (what to rerun) are in [references/runs.md](references/runs.md). When unclear,
+use its judgment defaults and state each assumption. Never write to a tracker or chat unless
+asked. One-page entry point for people and agents: [QUICKSTART.md](QUICKSTART.md). Drift: add `--tests-dir` to inventory `--drift`.
 
 Emit the End Report from [references/run-protocol.md](references/run-protocol.md).
 
